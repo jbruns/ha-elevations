@@ -12,16 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import device_registry as dr
+from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_mqtt_message,
-    async_mock_service,
-)
+from pytest_homeassistant_custom_component.common import async_fire_mqtt_message
 
-from testing.blueprints import OWNER
+from testing.automations import async_setup_automations, blueprint_automation
+# Recipients are the shared harness phones; the recipient fixtures come from it.
+from testing.phones import Phone as Recipient
 
 ALERT_BLUEPRINT = "front_door_alert_notifications.yaml"
 DOORBELL_BLUEPRINT = "front_door_doorbell_press_notifications.yaml"
@@ -153,40 +150,6 @@ async def settle() -> None:
         await asyncio.sleep(0)
 
 
-@dataclass
-class Recipient:
-    device_id: str
-    calls: list[ServiceCall]
-
-    @property
-    def notifications(self) -> list[dict[str, Any]]:
-        return [dict(call.data) for call in self.calls]
-
-
-def add_phone(hass: HomeAssistant, name: str) -> Recipient:
-    slug = name.lower().replace(" ", "_")
-    entry = MockConfigEntry(domain="mobile_app", data={"device_name": name})
-    entry.add_to_hass(hass)
-    device = dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={("mobile_app", slug)},
-        name=name,
-    )
-    calls = async_mock_service(hass, "notify", f"mobile_app_{slug}")
-    return Recipient(device.id, calls)
-
-
-@pytest.fixture
-async def recipient(hass: HomeAssistant) -> Recipient:
-    return add_phone(hass, "Test Phone")
-
-
-@pytest.fixture
-async def other_recipient(hass: HomeAssistant) -> Recipient:
-    """A second household phone; add it to an automation's recipients to use it."""
-    return add_phone(hass, "Other Phone")
-
-
 @pytest.fixture
 def blueprint_input() -> dict[str, Any]:
     """Extra Alert Notifications inputs; override in a test module or with parametrize."""
@@ -203,19 +166,17 @@ def doorbell_input() -> dict[str, Any]:
 def alert_automation(
     recipient: Recipient, blueprint_input: dict[str, Any]
 ) -> dict[str, Any]:
-    return {
-        "alias": "Alert Notifications",
-        "use_blueprint": {
-            "path": f"{OWNER}/{ALERT_BLUEPRINT}",
-            "input": {
-                "camera": CAMERA_ENTITY,
-                "recipients": [recipient.device_id],
-                "base_url": BASE_URL,
-                "last_notification": LAST_NOTIFICATION,
-                **blueprint_input,
-            },
+    return blueprint_automation(
+        BLUEPRINT,
+        {
+            "camera": CAMERA_ENTITY,
+            "recipients": [recipient.device_id],
+            "base_url": BASE_URL,
+            "last_notification": LAST_NOTIFICATION,
+            **blueprint_input,
         },
-    }
+        alias="Alert Notifications",
+    )
 
 
 @pytest.fixture
@@ -223,18 +184,16 @@ def doorbell_automation(
     hass: HomeAssistant, recipient: Recipient, doorbell_input: dict[str, Any]
 ) -> dict[str, Any]:
     hass.states.async_set(DOORBELL_ENTITY, "off")
-    return {
-        "alias": "Doorbell Press Notifications",
-        "use_blueprint": {
-            "path": f"{OWNER}/{DOORBELL_BLUEPRINT}",
-            "input": {
-                "doorbell": DOORBELL_ENTITY,
-                "camera": CAMERA_ENTITY,
-                "recipients": [recipient.device_id],
-                **doorbell_input,
-            },
+    return blueprint_automation(
+        BLUEPRINT.with_name(DOORBELL_BLUEPRINT),
+        {
+            "doorbell": DOORBELL_ENTITY,
+            "camera": CAMERA_ENTITY,
+            "recipients": [recipient.device_id],
+            **doorbell_input,
         },
-    }
+        alias="Doorbell Press Notifications",
+    )
 
 
 @pytest.fixture
@@ -262,10 +221,5 @@ async def frigate(
             }
         },
     )
-    assert await async_setup_component(hass, "automation", {"automation": automations})
-    await hass.async_block_till_done()
-    states = hass.states.async_all("automation")
-    assert len(states) == len(automations)
-    # An automation whose blueprint fails to load is created unavailable.
-    assert all(state.state == "on" for state in states)
+    await async_setup_automations(hass, automations)
     return Frigate(hass)

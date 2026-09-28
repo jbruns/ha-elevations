@@ -29,4 +29,18 @@ The tests run the blueprints in a real Home Assistant core, pinned in `pyproject
 uv run pytest
 ```
 
+`testing/` is the shared harness, loaded for every context's tests from the root `conftest.py`. Its fixtures:
+
+| Fixture | Gives a test |
+| --- | --- |
+| `recipient`, `other_recipient`, `administrator` | mobile_app phones whose `notify.mobile_app_<phone>` calls are captured (`testing/phones.py`) |
+| `weather` | `weather.example`, whose hourly forecast a test sets hour by hour with `Hour(...)` (`testing/weather.py`) |
+| `household` | Household Home, from the persons in `zone.home`: `await household.set_home(n)` (`testing/household.py`) |
+| `thermostat` | `climate.example`, recording `set_temperature` and `set_hvac_mode` calls (`testing/thermostat.py`) |
+| `helpers` | `input_boolean`, `input_select`, `input_datetime` and `input_text` created by name (`testing/helpers.py`) |
+| `sensors` | any sensor's state and attributes, and battery sensors from a named integration (`testing/sensors.py`) |
+| `clock` | frozen time to move to or advance, firing `for:`, time and time pattern triggers (`testing/clock.py`) |
+
+`testing/automations.py` builds an automation from any context's blueprint by its repo path, and creates automations. `testing/tests/` shows each fixture in use.
+
 Before committing, install the hooks that keep secrets and PII out of the repo: `pre-commit install`. See [AGENTS.md](./AGENTS.md).
