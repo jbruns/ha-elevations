@@ -9,12 +9,13 @@ Views to add to a Home Assistant dashboard. They use placeholders like `camera.e
 - It is a subview, so it has a back arrow and no tab of its own.
 - It shows one camera. For a second camera, add another copy of the view with its own path, and give that path to that camera's automation.
 - It opens the latest Review, whether or not it is marked reviewed in Frigate. If a newer Review exists than the one that sent the Notification, the view opens that one; scrub back to find the Alert.
+- Below the camera, one row per Recipient shows their Snooze state, "Snoozed until HH:MM" or "Not snoozed", with a **Resume** button that ends the Snooze at once.
 - The card's `card_id` is `alert_review`. The Notification opens the view with the URL action `?advanced-camera-card-action.alert_review.review`, so the card loads the latest Review even when the app already has the view open. Keep the `card_id` if you edit the view.
 
 ### Add it
 
 1. Open the dashboard, then Edit dashboard → ⋮ → Raw configuration editor.
-2. Paste the file's contents as a new item under `views:`. Replace `camera.example` with the Frigate camera.
+2. Paste the file's contents as a new item under `views:`. Replace `camera.example` with the Frigate camera. In each Snooze row, replace `Phone A` / `Phone B` with the Recipient's name and `input_datetime.snooze_phone_a` / `_b` with their Snooze helper (see `blueprints/README.md`), in both the text and the Resume button.
 3. Save. The view's path is `/<dashboard>/front-door`, for example `/lovelace/front-door`. Give that path as the Review view in the Alert Notifications blueprint.
 
 The Live action of a Notification opens a view you already have with a live camera card, for example a cameras view with two-way audio. Give its path as the blueprint's Live view. A Doorbell Press Notification's Talk action opens the same view; give its path as the Doorbell Press Notifications blueprint's Cameras view.

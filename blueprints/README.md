@@ -12,6 +12,7 @@ Home Assistant imports these blueprints by URL, so they take every camera, phone
 - The Quiet Window: a Notification for a new Alert within 2 minutes (the default) of the previous Notification's first delivery arrives without sound. The blueprint records each first delivery in a Date and time helper. Automations that share the helper share one Quiet Window.
 - A Stationary Object is never named or shown. When a Review holds more than one Tracked Object, only those Frigate reports as moving are named or shown. The first Notification waits briefly (3 seconds by default) so it can name all of them.
 - Tapping the Notification opens the front-door view in the Home Assistant app, showing the latest Review with its timeline (see `dashboards/README.md`). Its **Live** action opens the live cameras view. Both are paths within Home Assistant, so the app opens them itself, at home or away.
+- Its **Snooze 30 min** and **Snooze 2 h** actions start a Snooze for that phone only. The tapped Notification changes in place, silently, to read "Snoozed until HH:MM". During a Snooze the phone gets no Alert Notifications, including further updates to the Alert it was snoozed from; other Recipients are unaffected. When the Snooze expires nothing is sent; the next Alert arrives as usual. Resume ends a Snooze early from the front-door view.
 
 It reads Frigate's `frigate/reviews` and `frigate/events` MQTT topics.
 
@@ -19,9 +20,10 @@ It reads Frigate's `frigate/reviews` and `frigate/events` MQTT topics.
 
 1. In the Frigate integration's options, keep the unauthenticated notification event proxy enabled. Set its expiry to `86400` seconds (24 hours).
 2. Create a Date and time helper with date and time, for the Quiet Window: Settings → Devices & Services → Helpers → Create Helper → Date and/or time.
-3. Add the front-door view to a dashboard: see `dashboards/README.md`.
-4. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
-5. Create an automation from it. Pick the Frigate camera, the Recipients' phones and the helper. Give the external URL phones use to reach Home Assistant, for example `https://ha.example.com`. Give the paths of the front-door view and the live cameras view, for example `/lovelace/front-door` and `/lovelace/cameras`.
+3. For each Recipient, create a Snooze helper the same way, with date and time. Its entity ID must be `input_datetime.snooze_<phone>`, where `<phone>` is the phone's device name as in its `notify.mobile_app_<phone>` action. For example, name the helper "Snooze Phone A" for a phone named "Phone A". A phone without one is never offered Snooze.
+4. Add the front-door view to a dashboard: see `dashboards/README.md`.
+5. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
+6. Create an automation from it. Pick the Frigate camera, the Recipients' phones and the Quiet Window helper. Give the external URL phones use to reach Home Assistant, for example `https://ha.example.com`. Give the paths of the front-door view and the live cameras view, for example `/lovelace/front-door` and `/lovelace/cameras`.
 
 ## Doorbell Press Notifications
 

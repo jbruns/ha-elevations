@@ -1,22 +1,61 @@
 # The front-door view: a tapped Alert Notification opens it. See dashboards/README.md.
-# Replace camera.example with the Frigate camera before adding the view to a dashboard.
+# Replace camera.example with the Frigate camera, and each Recipient's Phone A /
+# input_datetime.snooze_phone_a with their phone's name and Snooze helper, before
+# adding the view to a dashboard.
 title: Front Door
 path: front-door
 icon: mdi:doorbell-video
 type: panel
 subview: true
 cards:
-  - type: custom:advanced-camera-card
-    # The Notification's URL action targets this card by id.
-    card_id: alert_review
-    cameras:
-      - camera_entity: camera.example
-        media:
-          type: reviews
-          # The latest Review, even if already marked reviewed in Frigate.
-          reviewed: all
-    view:
-      default: review
-    profiles:
-      # A timeline below the Review that seeks the recording as it is dragged.
-      - scrubbing
+  # A panel view shows one card, so the camera and the Snoozes share a stack.
+  - type: vertical-stack
+    cards:
+      - type: custom:advanced-camera-card
+        # The Notification's URL action targets this card by id.
+        card_id: alert_review
+        cameras:
+          - camera_entity: camera.example
+            media:
+              type: reviews
+              # The latest Review, even if already marked reviewed in Frigate.
+              reviewed: all
+        view:
+          default: review
+        profiles:
+          # A timeline below the Review that seeks the recording as it is dragged.
+          - scrubbing
+      # One row per Recipient: their Snooze state and a Resume button.
+      - type: horizontal-stack
+        cards:
+          - type: markdown
+            content: >-
+              {% set until = state_attr('input_datetime.snooze_phone_a', 'timestamp') or 0 %}
+              **Phone A**: {{ 'Snoozed until ' ~ until | timestamp_custom('%H:%M') if until > now().timestamp() else 'Not snoozed' }}
+          - type: button
+            name: Resume
+            icon: mdi:bell-ring
+            tap_action:
+              action: perform-action
+              perform_action: input_datetime.set_datetime
+              target:
+                entity_id: input_datetime.snooze_phone_a
+              # Any time in the past ends the Snooze.
+              data:
+                timestamp: 0
+      - type: horizontal-stack
+        cards:
+          - type: markdown
+            content: >-
+              {% set until = state_attr('input_datetime.snooze_phone_b', 'timestamp') or 0 %}
+              **Phone B**: {{ 'Snoozed until ' ~ until | timestamp_custom('%H:%M') if until > now().timestamp() else 'Not snoozed' }}
+          - type: button
+            name: Resume
+            icon: mdi:bell-ring
+            tap_action:
+              action: perform-action
+              perform_action: input_datetime.set_datetime
+              target:
+                entity_id: input_datetime.snooze_phone_b
+              data:
+                timestamp: 0

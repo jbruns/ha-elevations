@@ -29,6 +29,8 @@ CAMERA_NAME = "front_door"
 CAMERA_FRIENDLY_NAME = "Front Door"
 DOORBELL_ENTITY = "binary_sensor.example_doorbell"
 LAST_NOTIFICATION = "input_datetime.example_last_notification"
+# Each Recipient's Snooze helper, named for its phone: input_datetime.snooze_<phone>.
+SNOOZE_HELPERS = ["input_datetime.snooze_test_phone", "input_datetime.snooze_other_phone"]
 BASE_URL = "https://ha.example.com"
 REVIEW_ID = "1790000000.000000-rev1"
 # The card_id of the Advanced Camera Card on the front-door view.
@@ -168,17 +170,28 @@ class Recipient:
         return [dict(call.data) for call in self.calls]
 
 
-@pytest.fixture
-async def recipient(hass: HomeAssistant) -> Recipient:
-    entry = MockConfigEntry(domain="mobile_app", data={"device_name": "Test Phone"})
+def add_phone(hass: HomeAssistant, name: str) -> Recipient:
+    slug = name.lower().replace(" ", "_")
+    entry = MockConfigEntry(domain="mobile_app", data={"device_name": name})
     entry.add_to_hass(hass)
     device = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
-        identifiers={("mobile_app", "test-phone")},
-        name="Test Phone",
+        identifiers={("mobile_app", slug)},
+        name=name,
     )
-    calls = async_mock_service(hass, "notify", "mobile_app_test_phone")
+    calls = async_mock_service(hass, "notify", f"mobile_app_{slug}")
     return Recipient(device.id, calls)
+
+
+@pytest.fixture
+async def recipient(hass: HomeAssistant) -> Recipient:
+    return add_phone(hass, "Test Phone")
+
+
+@pytest.fixture
+async def other_recipient(hass: HomeAssistant) -> Recipient:
+    """A second household phone; add it to an automation's recipients to use it."""
+    return add_phone(hass, "Other Phone")
 
 
 @pytest.fixture
@@ -251,7 +264,8 @@ async def frigate(
         "input_datetime",
         {
             "input_datetime": {
-                LAST_NOTIFICATION.split(".")[1]: {"has_date": True, "has_time": True}
+                helper.split(".")[1]: {"has_date": True, "has_time": True}
+                for helper in [LAST_NOTIFICATION, *SNOOZE_HELPERS]
             }
         },
     )

@@ -7,7 +7,9 @@ blueprint:
     proxy's expiry to 86400 seconds (24 hours) in the integration's options.
     Updates replace the Notification silently, and a new Alert within the
     Quiet Window of the previous one arrives silently. Tapping it opens the
-    front-door view in the app; its Live action opens the cameras view. See
+    front-door view in the app; its Live action opens the cameras view. Its
+    Snooze actions pause Alert Notifications to that phone, recorded in the
+    phone's Snooze helper, input_datetime.snooze_<phone name>. See
     blueprints/README.md in jbruns/ha-elevations.
   domain: automation
   source_url: https://github.com/jbruns/ha-elevations/blob/main/blueprints/automation/jbruns/alert_notifications.yaml
@@ -107,9 +109,20 @@ trigger_variables:
 
 triggers:
   - trigger: mqtt
+    id: review
     topic: "{{ mqtt_prefix }}/reviews"
     value_template: "{{ value_json.after.severity }}"
     payload: alert
+  - trigger: event
+    id: snooze
+    event_type: mobile_app_notification_action
+    event_data:
+      action: ALERT_SNOOZE_30M
+  - trigger: event
+    id: snooze
+    event_type: mobile_app_notification_action
+    event_data:
+      action: ALERT_SNOOZE_2H
 
 variables:
   camera_entity: !input camera
@@ -129,20 +142,63 @@ variables:
     {{ review_view_input | trim | regex_replace('/+$', '') }}?advanced-camera-card-action.alert_review.review
   live_url: "{{ live_view_input | trim | regex_replace('/+$', '') }}"
   camera_name: "{{ state_attr(camera_entity, 'camera_name') }}"
-  review: "{{ trigger.payload_json.after }}"
-  review_id: "{{ review.id }}"
+  review: "{{ trigger.payload_json.after if trigger.id == 'review' else {} }}"
+  review_id: "{{ review.id if trigger.id == 'review' else trigger.event.data.action_data.tag }}"
   title: "{{ camera_name | replace('_', ' ') | title }}"
+  # Each Recipient's Snooze helper, by device id: input_datetime.snooze_<phone>.
+  snooze_helpers: >-
+    {% set ns = namespace(helpers={}) %}
+    {% for r in recipients %}
+      {% set ns.helpers = dict(ns.helpers, **{r: 'input_datetime.snooze_' ~ (device_attr(r, 'name') | slugify)}) %}
+    {% endfor %}
+    {{ ns.helpers }}
+  live_action:
+    action: URI
+    title: Live
+    uri: "{{ live_url }}"
 
 conditions:
   - condition: template
     value_template: >-
-      {% set msg = trigger.payload_json %}
-      {{ msg.after.camera == camera_name
-         and msg.after.severity == 'alert'
-         and msg.type != 'end'
-         and (msg.type == 'new' or msg.before.severity != 'alert') }}
+      {% if trigger.id == 'snooze' %}
+        {% set a = trigger.event.data.action_data or {} %}
+        {{ a.camera == camera_name and a.recipient in recipients }}
+      {% else %}
+        {% set msg = trigger.payload_json %}
+        {{ msg.after.camera == camera_name
+           and msg.after.severity == 'alert'
+           and msg.type != 'end'
+           and (msg.type == 'new' or msg.before.severity != 'alert') }}
+      {% endif %}
 
 actions:
+  - if: "{{ trigger.id == 'snooze' }}"
+    then:
+      - variables:
+          recipient: "{{ trigger.event.data.action_data.recipient }}"
+          phone: "{{ device_attr(recipient, 'name') | slugify }}"
+          snoozed_until: >-
+            {{ now().timestamp() + (120 if trigger.event.data.action == 'ALERT_SNOOZE_2H' else 30) * 60 }}
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: "{{ snooze_helpers[recipient] }}"
+        data:
+          timestamp: "{{ snoozed_until }}"
+      # Replaces the tapped Notification in place; no new push.
+      - action: "notify.mobile_app_{{ phone }}"
+        data:
+          title: "{{ title }}"
+          message: "Snoozed until {{ snoozed_until | timestamp_custom('%H:%M') }}"
+          data:
+            tag: "{{ review_id }}"
+            group: "{{ camera_name }}"
+            url: "{{ review_url }}"
+            actions:
+              - "{{ live_action }}"
+            push:
+              sound: none
+              interruption-level: passive
+      - stop: Snoozed
   - variables:
       detections: "{{ review.data.detections }}"
       review_objects: "{{ review.data.objects }}"
@@ -159,6 +215,8 @@ actions:
       sent_body: ""
       sent_image_id: ""
       sent_image_as_of: 0
+      # Recipients snoozed at any point in this Alert; they get nothing more of it.
+      snoozed: []
   - repeat:
       until: "{{ finished }}"
       sequence:
@@ -228,11 +286,21 @@ actions:
         - if: "{{ send }}"
           then:
             - variables:
+                snoozed: >-
+                  {% set ns = namespace(snoozed=snoozed) %}
+                  {% for r in recipients %}
+                    {% set until = state_attr(snooze_helpers[r], 'timestamp') or 0 %}
+                    {% if until > now().timestamp() and r not in ns.snoozed %}
+                      {% set ns.snoozed = ns.snoozed + [r] %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ ns.snoozed }}
+                deliver_to: "{{ recipients | reject('in', snoozed) | list }}"
                 previous_notification_at: "{{ state_attr(last_notification, 'timestamp') or 0 }}"
                 in_quiet_window: >-
                   {{ not sent and previous_notification_at > 0
                      and now().timestamp() - previous_notification_at < quiet_window * 60 }}
-            - if: "{{ not sent }}"
+            - if: "{{ not sent and deliver_to | length > 0 }}"
               then:
                 - action: input_datetime.set_datetime
                   target:
@@ -240,8 +308,14 @@ actions:
                   data:
                     timestamp: "{{ now().timestamp() }}"
             - repeat:
-                for_each: "{{ recipients }}"
+                for_each: "{{ deliver_to }}"
                 sequence:
+                  - variables:
+                      actions: >-
+                        {% set snooze = [
+                             {'action': 'ALERT_SNOOZE_30M', 'title': 'Snooze 30 min'},
+                             {'action': 'ALERT_SNOOZE_2H', 'title': 'Snooze 2 h'}] %}
+                        {{ [live_action] + (snooze if has_value(snooze_helpers[repeat.item]) else []) }}
                   - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
                     data:
                       title: "{{ title }}"
@@ -250,10 +324,13 @@ actions:
                         tag: "{{ review_id }}"
                         group: "{{ camera_name }}"
                         url: "{{ review_url }}"
-                        actions:
-                          - action: URI
-                            title: Live
-                            uri: "{{ live_url }}"
+                        actions: "{{ actions }}"
+                        # The iOS app returns this with a tapped action, so a Snooze
+                        # knows whose phone and which Notification it came from.
+                        action_data:
+                          recipient: "{{ repeat.item }}"
+                          camera: "{{ camera_name }}"
+                          tag: "{{ review_id }}"
                         attachment:
                           # A new URL on every update, or iOS shows its cached image (ADR 0003).
                           url: >-

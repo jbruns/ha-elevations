@@ -1,10 +1,15 @@
 """The front-door dashboard view that a tapped Alert Notification opens."""
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.template import Template
+from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 
 from conftest import BLUEPRINT, REVIEW_CARD_ID
 
@@ -17,9 +22,34 @@ def view() -> dict[str, Any]:
 
 
 @pytest.fixture
-def card(view: dict[str, Any]) -> dict[str, Any]:
-    [card] = view["cards"]
+def stack(view: dict[str, Any]) -> list[dict[str, Any]]:
+    # A panel view shows only its first card.
+    [stack] = view["cards"]
+    assert stack["type"] == "vertical-stack"
+    return stack["cards"]
+
+
+@pytest.fixture
+def card(stack: list[dict[str, Any]]) -> dict[str, Any]:
+    [card] = [c for c in stack if c["type"] == "custom:advanced-camera-card"]
     return card
+
+
+@pytest.fixture
+def snooze_rows(stack: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+    """Each Recipient's (Snooze state template, Resume button)."""
+    rows = []
+    for row in stack:
+        if row["type"] != "horizontal-stack":
+            continue
+        [state] = [c for c in row["cards"] if c["type"] == "markdown"]
+        [resume] = [c for c in row["cards"] if c.get("name") == "Resume"]
+        rows.append((state["content"], resume))
+    return rows
+
+
+def helper(resume: dict[str, Any]) -> str:
+    return resume["tap_action"]["target"]["entity_id"]
 
 
 @pytest.fixture
@@ -57,6 +87,69 @@ def test_card_shows_a_timeline_to_scrub(card: dict) -> None:
 def test_camera_is_a_placeholder(camera: dict) -> None:
     # ADR 0004: the real camera is picked when the view is installed.
     assert camera["camera_entity"] == "camera.example"
+
+
+def test_view_shows_both_recipients_snoozes(snooze_rows: list) -> None:
+    helpers = [helper(resume) for _, resume in snooze_rows]
+    assert len(set(helpers)) == 2
+    # ADR 0004: placeholders, named as the blueprint expects.
+    assert all(h.startswith("input_datetime.snooze_phone_") for h in helpers)
+    for content, resume in snooze_rows:
+        assert helper(resume) in content
+
+
+async def render(hass: HomeAssistant, content: str) -> str:
+    return Template(content, hass).async_render(parse_result=False)
+
+
+@pytest.fixture
+async def helpers(hass: HomeAssistant, snooze_rows: list) -> list[str]:
+    ids = [helper(resume) for _, resume in snooze_rows]
+    assert await async_setup_component(
+        hass,
+        "input_datetime",
+        {"input_datetime": {h.split(".")[1]: {"has_date": True, "has_time": True} for h in ids}},
+    )
+    return ids
+
+
+async def snooze(hass: HomeAssistant, entity_id: str, minutes: int) -> None:
+    await hass.services.async_call(
+        "input_datetime",
+        "set_datetime",
+        {"timestamp": (dt_util.now() + timedelta(minutes=minutes)).timestamp()},
+        target={"entity_id": entity_id},
+        blocking=True,
+    )
+
+
+async def test_snooze_state_reads_snoozed_until_or_not_snoozed(
+    hass: HomeAssistant, snooze_rows: list, helpers: list[str]
+) -> None:
+    (snoozed, _), (not_snoozed, _) = snooze_rows
+    await snooze(hass, helpers[0], 30)
+    until = dt_util.as_local(dt_util.now() + timedelta(minutes=30)).strftime("%H:%M")
+
+    assert f"Snoozed until {until}" in await render(hass, snoozed)
+    assert "Not snoozed" in await render(hass, not_snoozed)
+
+
+async def test_resume_ends_that_recipients_snooze_only(
+    hass: HomeAssistant, snooze_rows: list, helpers: list[str]
+) -> None:
+    (content, resume), (other_content, _) = snooze_rows
+    for h in helpers:
+        await snooze(hass, h, 120)
+
+    action = resume["tap_action"]
+    assert action["action"] == "perform-action"
+    domain, service = action["perform_action"].split(".")
+    await hass.services.async_call(
+        domain, service, action.get("data", {}), target=action["target"], blocking=True
+    )
+
+    assert "Not snoozed" in await render(hass, content)
+    assert "Snoozed until" in await render(hass, other_content)
 
 
 class _BlueprintLoader(yaml.SafeLoader):
