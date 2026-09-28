@@ -1,0 +1,25 @@
+.worktrees/
+.env
+
+# Python development and build outputs.
+.venv/
+.wheel-venv/
+.wheel-smoke/
+.ci-evidence/
+dist/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+
+# Agent skills, restored from the pin in skills-lock.json rather than vendored.
+# See docs/agents/skills.md.
+.agents/skills/
+
+# Local list of names, hostnames and device IDs that must never be committed.
+# See AGENTS.md.
+.pii-denylist
+
+# Frigate: real values and rendered output. Only the template frigate/config.yaml is committed.
+frigate/*.local.yaml
+frigate/build/

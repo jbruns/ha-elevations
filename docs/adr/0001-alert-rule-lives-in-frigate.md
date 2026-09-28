@@ -1,0 +1,3 @@
+# The Alert rule lives in Frigate's config, not in Home Assistant
+
+We define what counts as an Alert (a moving person in any Watched Zone, or a car arriving in the driveway) in Frigate's config, using zone object filters and alert-required zones. The notification automation only follows Frigate's *alert* severity; it does not filter by label or zone itself. This keeps one definition, so the Frigate UI, its timeline, the dashboard's "latest Review" view and the phone all agree. The alternative, filtering in HA, would let Frigate's alerts and our Notifications drift apart, and the latest-Review view would land on Reviews that never produced a Notification.

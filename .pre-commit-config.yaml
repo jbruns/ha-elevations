@@ -1,0 +1,12 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: pii-denylist
+        name: PII denylist
+        entry: scripts/check-pii-denylist.sh
+        language: script
+        types: [text]

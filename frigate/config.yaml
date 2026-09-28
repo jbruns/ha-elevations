@@ -1,0 +1,141 @@
+# Frigate config template. {FRIGATE_*} placeholders are filled from the gitignored
+# frigate/secrets.local.yaml by scripts/render-frigate-config.py. See frigate/README.md.
+mqtt:
+  host: core-mosquitto
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
+
+detectors:
+#  coral:
+#    type: edgetpu
+#    device: usb
+  ov_0:
+    type: openvino
+    device: GPU
+# ssdlite
+#model:
+#  width: 300
+#  height: 300
+#  input_tensor: nhwc
+#  input_pixel_format: bgr
+#  path: /openvino-model/ssdlite_mobilenet_v2.xml
+#  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+
+# yolov9s, 640x640
+model:
+  path: plus://{FRIGATE_PLUS_MODEL_ID}
+
+audio:
+  enabled: true
+
+ffmpeg:
+  hwaccel_args: preset-intel-qsv-h264
+
+face_recognition:
+  enabled: true
+
+  model_size: large
+objects:
+  track:
+    - person
+    - car
+    - face
+    - license_plate
+
+record:
+  enabled: true
+  alerts:
+    retain:
+      days: 7
+    pre_capture: 10
+    post_capture: 10
+  detections:
+    retain:
+      days: 7
+    pre_capture: 10
+    post_capture: 10
+  continuous:
+    days: 3
+  motion:
+    days: 3
+snapshots:
+  enabled: true
+  retain:
+    objects:
+      person: 21
+      car: 7
+
+go2rtc:
+  webrtc:
+    candidates:
+      - "{FRIGATE_WEBRTC_LAN_IP}:8555"
+      - "{FRIGATE_WEBRTC_WAN_IP}:8555"
+  streams:
+    front_door:
+      - ffmpeg:http://{FRIGATE_DOORBELL_HOST}/flv?port=1935&app=bcs&stream=channel0_main.bcs&user={FRIGATE_DOORBELL_USER}&password={FRIGATE_DOORBELL_PASSWORD}#video=copy#audio=copy#audio=opus
+      - rtsp://{FRIGATE_DOORBELL_USER}:{FRIGATE_DOORBELL_PASSWORD}@{FRIGATE_DOORBELL_HOST}:554/h264Preview_01_sub
+    front_door_sub:
+      - ffmpeg:http://{FRIGATE_DOORBELL_HOST}/flv?port=1935&app=bcs&stream=channel0_ext.bcs&user={FRIGATE_DOORBELL_USER}&password={FRIGATE_DOORBELL_PASSWORD}
+    smartchime:
+      - ffmpeg:front_door#video=h264#rotate=90#width=1080#height=1920#hardware
+
+cameras:
+  front_door:
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/front_door
+          input_args: preset-rtsp-restream
+          roles:
+            - audio
+            - record
+        - path: rtsp://127.0.0.1:8554/front_door_sub
+          roles:
+            - detect
+      output_args:
+        record: preset-record-generic-audio-aac
+    zones:
+      driveway:
+        coordinates: 371,143,370,340,209,327,207,148
+        objects:
+          - car
+          - person
+      entry_breezeway:
+        coordinates: 640,480,359,480,249,480,299,349,375,138,640,32
+        objects:
+          - person
+      parking:
+        coordinates: 0,337,160,333,192,0,0,0
+        objects:
+          - person
+    motion:
+      mask:
+        motion_mask_1:
+          friendly_name: Motion Mask 1
+          enabled: true
+          coordinates: 640,25,454,21,448,0,640,0
+        motion_mask_2:
+          friendly_name: Motion Mask 2
+          enabled: true
+          coordinates: 0,30,170,30,170,0,0,0
+    snapshots:
+      required_zones:
+        - driveway
+        - entry_breezeway
+        - parking
+    review:
+      alerts:
+        required_zones:
+          - driveway
+          - entry_breezeway
+          - parking
+version: 0.18-0
+detect:
+  enabled: true
+semantic_search:
+  enabled: false
+  model_size: small
+lpr:
+  enabled: true
+classification:
+  bird:
+    enabled: false

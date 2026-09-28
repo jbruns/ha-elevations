@@ -1,0 +1,22 @@
+# Extends gitleaks' default rules with the credential shapes that appear in
+# Frigate and Home Assistant YAML, which the defaults do not catch.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "yaml-password"
+description = "Literal password value in YAML"
+regex = '''(?i)\bpassword:\s*['"]?([^\s'"{$<][^\s'"]*)'''
+secretGroup = 1
+
+[[rules]]
+id = "url-query-password"
+description = "Password in a URL query string"
+regex = '''(?i)[?&]password=([^&#\s{$<][^&#\s]*)'''
+secretGroup = 1
+
+[[rules]]
+id = "url-userinfo-password"
+description = "Password in URL userinfo (scheme://user:pass@host)"
+regex = '''[a-z][a-z0-9+.-]*://[^:@/\s]+:([^@\s{$<][^@\s]*)@'''
+secretGroup = 1
