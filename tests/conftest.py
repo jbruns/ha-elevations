@@ -30,6 +30,7 @@ BLUEPRINT = (
 )
 CAMERA_ENTITY = "camera.example"
 CAMERA_NAME = "front_door"
+LAST_NOTIFICATION = "input_datetime.example_last_notification"
 BASE_URL = "https://ha.example.com"
 REVIEW_ID = "1790000000.000000-rev1"
 
@@ -147,12 +148,13 @@ async def settle() -> None:
     """Let runs process a message and return to waiting for the next one.
 
     hass.async_block_till_done() would wait for the runs themselves, which
-    only finish when their Review ends.
+    only finish when their Review ends. No timed sleeps: the freezer fixture
+    stops the event loop's clock.
     """
     for _ in range(3):
         for _ in range(200):
             await asyncio.sleep(0)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0)
 
 
 @dataclass
@@ -179,10 +181,28 @@ async def recipient(hass: HomeAssistant) -> Recipient:
 
 
 @pytest.fixture
+def blueprint_input() -> dict[str, Any]:
+    """Extra blueprint inputs; override in a test module or with parametrize."""
+    return {}
+
+
+@pytest.fixture
 async def frigate(
-    hass: HomeAssistant, mqtt_mock: Any, recipient: Recipient
+    hass: HomeAssistant,
+    mqtt_mock: Any,
+    recipient: Recipient,
+    blueprint_input: dict[str, Any],
 ) -> Frigate:
     hass.states.async_set(CAMERA_ENTITY, "idle", {"camera_name": CAMERA_NAME})
+    assert await async_setup_component(
+        hass,
+        "input_datetime",
+        {
+            "input_datetime": {
+                LAST_NOTIFICATION.split(".")[1]: {"has_date": True, "has_time": True}
+            }
+        },
+    )
     assert await async_setup_component(
         hass,
         "automation",
@@ -195,6 +215,8 @@ async def frigate(
                         "camera": CAMERA_ENTITY,
                         "recipients": [recipient.device_id],
                         "base_url": BASE_URL,
+                        "last_notification": LAST_NOTIFICATION,
+                        **blueprint_input,
                     },
                 },
             }

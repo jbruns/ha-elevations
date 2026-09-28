@@ -5,7 +5,8 @@ blueprint:
     The image is the moving Tracked Object's cropped snapshot, fetched through
     the Frigate integration's unauthenticated notification proxy; set the
     proxy's expiry to 86400 seconds (24 hours) in the integration's options.
-    Updates replace the Notification silently. See blueprints/README.md in
+    Updates replace the Notification silently, and a new Alert within the
+    Quiet Window of the previous one arrives silently. See blueprints/README.md in
     jbruns/ha-elevations.
   domain: automation
   source_url: https://github.com/jbruns/ha-elevations/blob/main/blueprints/automation/jbruns/alert_notifications.yaml
@@ -50,6 +51,29 @@ blueprint:
           min: 0
           max: 30
           unit_of_measurement: seconds
+    quiet_window:
+      name: Quiet Window
+      description: >-
+        How long after a Notification a Notification for a new Alert arrives
+        without sound. 0 turns the Quiet Window off.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 0.5
+          unit_of_measurement: minutes
+    last_notification:
+      name: Last Notification helper
+      description: >-
+        A Date and time helper (input_datetime, with date and time) where the
+        blueprint records each Notification's first delivery, for the Quiet
+        Window. Give several automations the same helper to share one Quiet
+        Window across them.
+      selector:
+        entity:
+          filter:
+            domain: input_datetime
     mqtt_prefix:
       name: Frigate MQTT topic prefix
       default: frigate
@@ -73,6 +97,8 @@ variables:
   recipients: !input recipients
   base_url_input: !input base_url
   report_wait: !input report_wait
+  quiet_window: !input quiet_window
+  last_notification: !input last_notification
   base_url: "{{ base_url_input | trim | regex_replace('/+$', '') }}"
   camera_name: "{{ state_attr(camera_entity, 'camera_name') }}"
   review: "{{ trigger.payload_json.after }}"
@@ -173,6 +199,18 @@ actions:
               {% endif %}
         - if: "{{ send }}"
           then:
+            - variables:
+                previous_notification_at: "{{ state_attr(last_notification, 'timestamp') or 0 }}"
+                in_quiet_window: >-
+                  {{ not sent and previous_notification_at > 0
+                     and now().timestamp() - previous_notification_at < quiet_window * 60 }}
+            - if: "{{ not sent }}"
+              then:
+                - action: input_datetime.set_datetime
+                  target:
+                    entity_id: "{{ last_notification }}"
+                  data:
+                    timestamp: "{{ now().timestamp() }}"
             - repeat:
                 for_each: "{{ recipients }}"
                 sequence:
@@ -189,7 +227,13 @@ actions:
                             {{ base_url }}/api/frigate/notifications/{{ image_id }}/snapshot.jpg?bbox=1&crop=1&v={{ (now().timestamp() * 1000) | int }}
                           content-type: jpeg
                         push: >-
-                          {{ {'sound': 'default'} if not sent else {'sound': 'none', 'interruption-level': 'passive'} }}
+                          {% if sent %}
+                            {{ {'sound': 'none', 'interruption-level': 'passive'} }}
+                          {% elif in_quiet_window %}
+                            {{ {'sound': 'none'} }}
+                          {% else %}
+                            {{ {'sound': 'default'} }}
+                          {% endif %}
             - variables:
                 sent: true
                 sent_body: "{{ body }}"

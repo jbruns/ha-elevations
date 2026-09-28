@@ -3,6 +3,8 @@
 from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
@@ -19,6 +21,8 @@ from conftest import (
 
 PERSON = "1790000000.100000-person"
 CAR = "1789990000.000000-car"
+NEXT_REVIEW_ID = "1790000040.000000-rev2"
+NEXT_PERSON = "1790000040.100000-person"
 
 
 def image_url(notification: dict) -> str:
@@ -328,3 +332,87 @@ async def test_review_that_goes_quiet_still_gets_its_final_update(
     final = recipient.notifications[-1]
     assert is_silent(final)
     assert final["message"] == first["message"]
+
+
+async def person_walks_up_and_leaves(frigate: Frigate) -> None:
+    await frigate.publish_review(
+        review("new", [PERSON], ["person"], ["entry_breezeway"])
+    )
+    await frigate.publish_review(
+        review("end", [PERSON], ["person"], ["entry_breezeway"])
+    )
+
+
+async def next_alert_notification(frigate: Frigate, recipient: Recipient) -> dict:
+    """Publishes a second, new Alert for a person and returns its Notification."""
+    await frigate.publish_review(
+        review(
+            "new",
+            [NEXT_PERSON],
+            ["person"],
+            ["entry_breezeway"],
+            review_id=NEXT_REVIEW_ID,
+        )
+    )
+    [notification] = [
+        n for n in recipient.notifications if n["data"]["tag"] == NEXT_REVIEW_ID
+    ]
+    return notification
+
+
+async def test_new_alert_within_the_quiet_window_arrives_silently(
+    freezer: FrozenDateTimeFactory, frigate: Frigate, recipient: Recipient
+) -> None:
+    await person_walks_up_and_leaves(frigate)
+    freezer.tick(timedelta(seconds=40))
+
+    notification = await next_alert_notification(frigate, recipient)
+
+    assert not is_silent(recipient.notifications[0])
+    assert is_silent(notification)
+    assert notification["message"] == "Person in Entry Breezeway"
+
+
+async def test_new_alert_after_the_quiet_window_makes_a_sound(
+    freezer: FrozenDateTimeFactory, frigate: Frigate, recipient: Recipient
+) -> None:
+    await person_walks_up_and_leaves(frigate)
+    freezer.tick(timedelta(minutes=2, seconds=1))
+
+    notification = await next_alert_notification(frigate, recipient)
+
+    assert not is_silent(notification)
+
+
+@pytest.mark.parametrize("blueprint_input", [{"quiet_window": 5}])
+async def test_quiet_window_length_is_an_input(
+    freezer: FrozenDateTimeFactory, frigate: Frigate, recipient: Recipient
+) -> None:
+    await frigate.publish_review(
+        review("new", [PERSON], ["person"], ["entry_breezeway"])
+    )
+    freezer.tick(timedelta(minutes=4))
+
+    notification = await next_alert_notification(frigate, recipient)
+
+    assert is_silent(notification)
+
+
+async def test_alert_that_sent_no_notification_opens_no_quiet_window(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, frigate: Frigate, recipient: Recipient
+) -> None:
+    await frigate.publish_review(
+        review("new", [CAR, PERSON], ["car", "person"], ["driveway"])
+    )
+    freezer.tick(timedelta(seconds=10))
+    async_fire_time_changed(hass)
+    await settle()
+    await frigate.publish_review(
+        review("end", [CAR, PERSON], ["car", "person"], ["driveway"])
+    )
+    assert recipient.notifications == []
+    freezer.tick(timedelta(seconds=30))
+
+    notification = await next_alert_notification(frigate, recipient)
+
+    assert not is_silent(notification)
