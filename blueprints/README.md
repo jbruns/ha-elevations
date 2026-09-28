@@ -2,6 +2,50 @@
 
 Home Assistant imports these blueprints by URL, so they take every camera, phone and URL as an input (ADR 0004).
 
+## Start from scratch
+
+Follow this if you have no Frigate notifications yet. The per-blueprint **Set up** sections below have the details for each step.
+
+### Before you start
+
+You need all of these:
+
+- **Home Assistant 2025.4 or later**, reachable from outside your home network at an HTTPS URL, for example `https://ha.example.com`. Phones fetch snapshots from this URL, so it must work away from home.
+- **Frigate**, with each camera's Watched Zones set up, publishing to an MQTT broker. The blueprint reads the `frigate/reviews` and `frigate/events` topics.
+- **The MQTT integration** in Home Assistant, connected to the same broker.
+- **The Frigate integration** (from HACS), with the unauthenticated notification event proxy enabled. This is a checkbox when you add the integration. It is also under the integration's options.
+- **The Home Assistant app on each Recipient's iPhone**, signed in, with notifications allowed. Each phone then has a `notify.mobile_app_<phone>` action. The Notifications use iOS features: attachments, time-sensitive delivery, and actions that carry data back to Home Assistant.
+- **The [Advanced Camera Card](https://github.com/dermotduffy/advanced-camera-card)** (from HACS), for the front-door view.
+- **A dashboard view with a live camera card that has two-way audio**, such as a cameras view, if you want the Live and Talk actions to open one.
+
+### Let Frigate decide what an Alert is
+
+The blueprint sends a Notification only for Reviews that Frigate marks *alert*. It never filters by label or zone itself (ADR 0001). So set the Alert rule in the Frigate config, per camera. `frigate/config.yaml` in this repo is a working example:
+
+- Under `zones:`, give each Watched Zone an `objects:` list of the labels that count there. For example, `person` everywhere and `car` in the driveway only.
+- Under `review: alerts: required_zones:`, list the Watched Zones, so activity outside them is never an Alert.
+
+Restart Frigate. Walk into a Watched Zone and check that the Frigate UI shows an *alert* Review.
+
+### Set up Home Assistant
+
+1. In the Frigate integration's options, set the notification proxy's expiry to `86400` seconds (24 hours).
+2. Create the helpers: one Date and time helper for the Quiet Window, and one Snooze helper per Recipient. See [Alert Notifications → Set up](#set-up), steps 2 and 3.
+3. Add the front-door view to a dashboard (`dashboards/README.md`). Note its path, for example `/lovelace/front-door`, and the path of your live cameras view.
+4. Import both blueprints: Settings → Automations & Scenes → Blueprints → Import Blueprint, with each file's GitHub URL.
+5. Create one Alert Notifications automation per camera. The Review view and Live view inputs default to `/lovelace/front-door` and `/lovelace/cameras`. If your views are on another dashboard, give their paths instead.
+6. Create one Doorbell Press Notifications automation, if you have a doorbell. Turn off any other automation that notifies on a doorbell press, or Recipients get two Notifications per press.
+7. On each iPhone, turn on Time Sensitive Notifications for the Home Assistant app ([Doorbell Press Notifications → Set up](#set-up-1), step 3).
+
+### Check it works
+
+- Walk into a Watched Zone. Each Recipient gets one Notification with a sound, showing you in the image. Updates arrive silently.
+- Tap the Notification. The front-door view opens in the app, on the latest Review.
+- Tap **Snooze 30 min** on one phone. That Notification reads "Snoozed until HH:MM", and the front-door view shows the Snooze. Tap **Resume** there to end it.
+- Press the doorbell. Each Recipient gets a separate, time-sensitive Notification.
+
+The phone's device name sets both its `notify.mobile_app_<phone>` action and its Snooze helper's entity ID. If you rename a phone in the app, rename its Snooze helper to match.
+
 ## Alert Notifications
 
 `automation/jbruns/alert_notifications.yaml` sends one Notification per Alert on a Frigate camera to each Recipient.
