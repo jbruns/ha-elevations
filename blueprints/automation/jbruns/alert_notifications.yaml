@@ -1,0 +1,253 @@
+blueprint:
+  name: Alert Notifications
+  description: >-
+    Sends one Notification per Alert on a Frigate camera to each Recipient.
+    The image is the moving Tracked Object's cropped snapshot, fetched through
+    the Frigate integration's unauthenticated notification proxy; set the
+    proxy's expiry to 86400 seconds (24 hours) in the integration's options.
+    Updates replace the Notification silently. See blueprints/README.md in
+    jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/blueprints/automation/jbruns/alert_notifications.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    camera:
+      name: Camera
+      description: The Frigate camera whose Alerts cause Notifications.
+      selector:
+        entity:
+          filter:
+            integration: frigate
+            domain: camera
+    recipients:
+      name: Recipients
+      description: The phones that receive Notifications.
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: mobile_app
+    base_url:
+      name: External URL
+      description: >-
+        The URL phones use to reach Home Assistant, for example
+        https://ha.example.com. Snapshot links go through the Frigate
+        integration's notification proxy at this address.
+      selector:
+        text:
+          type: url
+    report_wait:
+      name: Wait for Tracked Object reports
+      description: >-
+        When an Alert starts with more than one Tracked Object, how long the
+        first Notification waits for Frigate to report which of them are
+        moving. A moving object reports almost at once; a parked car can take
+        a minute.
+      default: 3
+      selector:
+        number:
+          min: 0
+          max: 30
+          unit_of_measurement: seconds
+    mqtt_prefix:
+      name: Frigate MQTT topic prefix
+      default: frigate
+      selector:
+        text:
+
+mode: parallel
+max: 10
+
+trigger_variables:
+  mqtt_prefix: !input mqtt_prefix
+
+triggers:
+  - trigger: mqtt
+    topic: "{{ mqtt_prefix }}/reviews"
+    value_template: "{{ value_json.after.severity }}"
+    payload: alert
+
+variables:
+  camera_entity: !input camera
+  recipients: !input recipients
+  base_url_input: !input base_url
+  report_wait: !input report_wait
+  base_url: "{{ base_url_input | trim | regex_replace('/+$', '') }}"
+  camera_name: "{{ state_attr(camera_entity, 'camera_name') }}"
+  review: "{{ trigger.payload_json.after }}"
+  review_id: "{{ review.id }}"
+  title: "{{ camera_name | replace('_', ' ') | title }}"
+
+conditions:
+  - condition: template
+    value_template: >-
+      {% set msg = trigger.payload_json %}
+      {{ msg.after.camera == camera_name
+         and msg.after.severity == 'alert'
+         and msg.type != 'end'
+         and (msg.type == 'new' or msg.before.severity != 'alert') }}
+
+actions:
+  - variables:
+      detections: "{{ review.data.detections }}"
+      review_objects: "{{ review.data.objects }}"
+      review_zones: "{{ review.data.zones }}"
+      review_sub_labels: "{{ review.data.sub_labels }}"
+      # Tracked Objects on the camera, by id, as last reported on frigate/events.
+      tracked: {}
+      frigate_now: "{{ review.start_time }}"
+      report_wait_until: "{{ now().timestamp() + report_wait }}"
+      report_wait_over: false
+      ended: false
+      finished: false
+      sent: false
+      sent_body: ""
+      sent_image_id: ""
+      sent_image_as_of: 0
+  - repeat:
+      until: "{{ finished }}"
+      sequence:
+        - variables:
+            # The moving Tracked Objects to name. One reported stationary is
+            # never named or shown. A Review takes in Tracked Objects only while
+            # they move, so a lone Tracked Object with no report yet is moving;
+            # with several, only those reported moving are named.
+            named_objects: >-
+              {% set ns = namespace(subjects=[], known_labels=[], unknown=[]) %}
+              {% for id in detections | sort %}
+                {% set t = tracked.get(id) %}
+                {% if t %}
+                  {% set ns.known_labels = ns.known_labels + [t.label] %}
+                  {% if not t.stationary %}
+                    {% set ns.subjects = ns.subjects + [dict(id=id, label=t.label, name=t.name, zone=t.zone)] %}
+                  {% endif %}
+                {% else %}
+                  {% set ns.unknown = ns.unknown + [id] %}
+                {% endif %}
+              {% endfor %}
+              {% if ns.unknown and detections | length == 1 %}
+                {% set labels = review_objects | map('regex_replace', '-verified$', '') | unique | reject('in', ns.known_labels) | list %}
+                {% for label in labels %}
+                  {% set ns.subjects = ns.subjects + [dict(
+                    id=ns.unknown | first if ns.unknown | length == 1 and labels | length == 1 else none,
+                    label=label,
+                    name=review_sub_labels | first if detections | length == 1 and review_sub_labels else none,
+                    zone=review_zones | last | default(''))] %}
+                {% endfor %}
+              {% endif %}
+              {{ ns.subjects }}
+            candidate_body: >-
+              {% set ns = namespace(phrases=[]) %}
+              {% for s in named_objects %}
+                {% set who = s.name or (s.label | replace('_', ' ') | title) %}
+                {% set verb = ' arriving' if s.label == 'car' else '' %}
+                {% set where = ' in ' ~ (s.zone | replace('_', ' ') | title) if s.zone else '' %}
+                {% set ns.phrases = ns.phrases + [who ~ verb ~ where] %}
+              {% endfor %}
+              {% set phrases = ns.phrases | unique | list %}
+              {% if phrases | length > 1 %}
+                {{ phrases[:-1] | join(', ') }} and {{ phrases | last }}
+              {% else %}
+                {{ phrases | first | default('') }}
+              {% endif %}
+            unreported: "{{ detections | reject('in', tracked.keys() | list) | list }}"
+            # Hold the first Notification briefly so it can name every moving
+            # Tracked Object, not just the first to report.
+            awaiting_reports: >-
+              {{ not sent and not report_wait_over
+                 and detections | length > 1 and unreported | length > 0 }}
+            candidate_image_id: >-
+              {% set with_id = named_objects | selectattr('id') | map(attribute='id') | list %}
+              {{ with_id | first if with_id else (unreported | first if detections | length == 1 and unreported else '') }}
+            body: "{{ sent_body if ended or not candidate_body else candidate_body }}"
+            image_id: "{{ sent_image_id if ended or not candidate_image_id else candidate_image_id }}"
+            image_as_of: "{{ tracked.get(image_id, {}).get('snap') or 0 }}"
+            send: >-
+              {% if awaiting_reports %}
+                false
+              {% elif not sent %}
+                {{ body != '' and image_id != '' }}
+              {% else %}
+                {{ ended or body != sent_body or image_id != sent_image_id or image_as_of > sent_image_as_of }}
+              {% endif %}
+        - if: "{{ send }}"
+          then:
+            - repeat:
+                for_each: "{{ recipients }}"
+                sequence:
+                  - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                    data:
+                      title: "{{ title }}"
+                      message: "{{ body }}"
+                      data:
+                        tag: "{{ review_id }}"
+                        group: "{{ camera_name }}"
+                        attachment:
+                          # A new URL on every update, or iOS shows its cached image (ADR 0003).
+                          url: >-
+                            {{ base_url }}/api/frigate/notifications/{{ image_id }}/snapshot.jpg?bbox=1&crop=1&v={{ (now().timestamp() * 1000) | int }}
+                          content-type: jpeg
+                        push: >-
+                          {{ {'sound': 'default'} if not sent else {'sound': 'none', 'interruption-level': 'passive'} }}
+            - variables:
+                sent: true
+                sent_body: "{{ body }}"
+                sent_image_id: "{{ image_id }}"
+                sent_image_as_of: "{{ image_as_of if image_as_of else frigate_now }}"
+        - if: "{{ ended }}"
+          then:
+            - variables:
+                finished: true
+          else:
+            - wait_for_trigger:
+                - trigger: mqtt
+                  topic: "{{ mqtt_prefix }}/reviews"
+                  value_template: "{{ value_json.after.id }}"
+                  payload: "{{ review_id }}"
+                - trigger: mqtt
+                  topic: "{{ mqtt_prefix }}/events"
+                  value_template: "{{ value_json.after.camera }}"
+                  payload: "{{ camera_name }}"
+              timeout: "{{ [report_wait_until - now().timestamp(), 0] | max if awaiting_reports else 600 }}"
+              continue_on_timeout: true
+            - if: "{{ not wait.trigger and awaiting_reports }}"
+              then:
+                - variables:
+                    report_wait_over: true
+            - if: "{{ not wait.trigger and not awaiting_reports }}"
+              then:
+                # Frigate went quiet without ending the Review; finish it here.
+                - variables:
+                    ended: true
+            - if: "{{ wait.trigger is not none }}"
+              then:
+                - variables:
+                    msg: "{{ wait.trigger.payload_json }}"
+                    is_review: "{{ wait.trigger.topic == mqtt_prefix ~ '/reviews' }}"
+                - if: "{{ is_review }}"
+                  then:
+                    - variables:
+                        detections: "{{ msg.after.data.detections }}"
+                        review_objects: "{{ msg.after.data.objects }}"
+                        review_zones: "{{ msg.after.data.zones }}"
+                        review_sub_labels: "{{ msg.after.data.sub_labels }}"
+                        ended: "{{ msg.type == 'end' }}"
+                        frigate_now: "{{ [frigate_now, msg.after.end_time or 0, msg.after.data.thumb_time or 0] | max }}"
+                  else:
+                    - variables:
+                        tracked: >-
+                          {% set o = msg.after %}
+                          {% set s = o.sub_label %}
+                          {% set name = (s | first if s is sequence and s is not string else s) if s else none %}
+                          {% set current = o.current_zones or [] %}
+                          {% set entered = o.entered_zones or [] %}
+                          {% set in_current = entered | select('in', current) | list %}
+                          {% set zone = in_current | last if in_current else (current | last if current else (entered | last | default(''))) %}
+                          {{ dict(tracked.items() | list + [(o.id, dict(
+                               label=o.label,
+                               name=name,
+                               zone=zone,
+                               stationary=o.stationary,
+                               snap=o.snapshot.frame_time if o.snapshot else none))]) }}
+                        frigate_now: "{{ [frigate_now, msg.after.frame_time or 0] | max }}"
