@@ -15,7 +15,7 @@ Views to add to a Home Assistant dashboard. They use placeholders like `camera.e
 ### Add it
 
 1. Open the dashboard, then Edit dashboard → ⋮ → Raw configuration editor.
-2. Paste the file's contents as a new item under `views:`. Replace `camera.example` with the Frigate camera. In each Snooze row, replace `Phone A` / `Phone B` with the Recipient's name and `input_datetime.snooze_phone_a` / `_b` with their Snooze helper (see `blueprints/README.md`), in both the text and the Resume button.
+2. Paste the file's contents as a new item under `views:`. Replace `camera.example` with the Frigate camera. In each Snooze row, replace `Phone A` / `Phone B` with the Recipient's name and `input_datetime.snooze_phone_a` / `_b` with their Snooze helper (see `blueprints/README.md`), in both the text and the Resume button. Copy or delete a row to match the number of Recipients.
 3. Save. The view's path is `/<dashboard>/front-door`, for example `/lovelace/front-door`. Give that path as the Review view in the Alert Notifications blueprint.
 
 The Live action of a Notification opens a view you already have with a live camera card, for example a cameras view with two-way audio. Give its path as the blueprint's Live view. A Doorbell Press Notification's Talk action opens the same view; give its path as the Doorbell Press Notifications blueprint's Cameras view.

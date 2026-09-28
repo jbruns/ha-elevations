@@ -152,6 +152,15 @@ variables:
       {% set ns.helpers = dict(ns.helpers, **{r: 'input_datetime.snooze_' ~ (device_attr(r, 'name') | slugify)}) %}
     {% endfor %}
     {{ ns.helpers }}
+  # Snooze action id → minutes. The triggers list the same ids.
+  snooze_minutes:
+    ALERT_SNOOZE_30M: 30
+    ALERT_SNOOZE_2H: 120
+  snooze_actions:
+    - action: ALERT_SNOOZE_30M
+      title: Snooze 30 min
+    - action: ALERT_SNOOZE_2H
+      title: Snooze 2 h
   live_action:
     action: URI
     title: Live
@@ -161,8 +170,8 @@ conditions:
   - condition: template
     value_template: >-
       {% if trigger.id == 'snooze' %}
-        {% set a = trigger.event.data.action_data or {} %}
-        {{ a.camera == camera_name and a.recipient in recipients }}
+        {% set tapped = trigger.event.data.action_data or {} %}
+        {{ tapped.camera == camera_name and tapped.recipient in recipients }}
       {% else %}
         {% set msg = trigger.payload_json %}
         {{ msg.after.camera == camera_name
@@ -178,7 +187,7 @@ actions:
           recipient: "{{ trigger.event.data.action_data.recipient }}"
           phone: "{{ device_attr(recipient, 'name') | slugify }}"
           snoozed_until: >-
-            {{ now().timestamp() + (120 if trigger.event.data.action == 'ALERT_SNOOZE_2H' else 30) * 60 }}
+            {{ now().timestamp() + snooze_minutes[trigger.event.data.action] * 60 }}
       - action: input_datetime.set_datetime
         target:
           entity_id: "{{ snooze_helpers[recipient] }}"
@@ -215,8 +224,6 @@ actions:
       sent_body: ""
       sent_image_id: ""
       sent_image_as_of: 0
-      # Recipients snoozed at any point in this Alert; they get nothing more of it.
-      snoozed: []
   - repeat:
       until: "{{ finished }}"
       sequence:
@@ -286,16 +293,15 @@ actions:
         - if: "{{ send }}"
           then:
             - variables:
-                snoozed: >-
-                  {% set ns = namespace(snoozed=snoozed) %}
+                # Checked at every send, so a Resume or expiry takes effect mid-Alert.
+                deliver_to: >-
+                  {% set ns = namespace(to=[]) %}
                   {% for r in recipients %}
-                    {% set until = state_attr(snooze_helpers[r], 'timestamp') or 0 %}
-                    {% if until > now().timestamp() and r not in ns.snoozed %}
-                      {% set ns.snoozed = ns.snoozed + [r] %}
+                    {% if (state_attr(snooze_helpers[r], 'timestamp') or 0) <= now().timestamp() %}
+                      {% set ns.to = ns.to + [r] %}
                     {% endif %}
                   {% endfor %}
-                  {{ ns.snoozed }}
-                deliver_to: "{{ recipients | reject('in', snoozed) | list }}"
+                  {{ ns.to }}
                 previous_notification_at: "{{ state_attr(last_notification, 'timestamp') or 0 }}"
                 in_quiet_window: >-
                   {{ not sent and previous_notification_at > 0
@@ -311,11 +317,8 @@ actions:
                 for_each: "{{ deliver_to }}"
                 sequence:
                   - variables:
-                      actions: >-
-                        {% set snooze = [
-                             {'action': 'ALERT_SNOOZE_30M', 'title': 'Snooze 30 min'},
-                             {'action': 'ALERT_SNOOZE_2H', 'title': 'Snooze 2 h'}] %}
-                        {{ [live_action] + (snooze if has_value(snooze_helpers[repeat.item]) else []) }}
+                      buttons: >-
+                        {{ [live_action] + (snooze_actions if has_value(snooze_helpers[repeat.item]) else []) }}
                   - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
                     data:
                       title: "{{ title }}"
@@ -324,7 +327,7 @@ actions:
                         tag: "{{ review_id }}"
                         group: "{{ camera_name }}"
                         url: "{{ review_url }}"
-                        actions: "{{ actions }}"
+                        actions: "{{ buttons }}"
                         # The iOS app returns this with a tapped action, so a Snooze
                         # knows whose phone and which Notification it came from.
                         action_data:

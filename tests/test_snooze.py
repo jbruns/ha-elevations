@@ -225,3 +225,27 @@ async def test_phone_without_a_snooze_helper_is_not_offered_snooze(
 
     [notification] = recipient.notifications
     assert [a["title"] for a in notification["data"]["actions"]] == ["Live"]
+
+
+async def test_resuming_during_an_alert_brings_back_its_updates(
+    hass: HomeAssistant, frigate: Frigate, recipient: Recipient
+) -> None:
+    await alert(frigate)
+    await tap(hass, recipient.notifications[0], "Snooze 30 min")
+    # An update while snoozed is held back.
+    await frigate.publish_event(
+        tracked_object(
+            PERSON, "person", current_zones=["entry_breezeway"], snapshot_time=1790000009.0
+        )
+    )
+    before = len(recipient.notifications)
+
+    await hass.services.async_call(
+        "input_datetime", "set_datetime", {"timestamp": 0}, target={"entity_id": SNOOZE_HELPERS[0]}
+    )
+    await settle()
+    await frigate.publish_review(review("end", [PERSON], ["person"], ["entry_breezeway"]))
+
+    [update] = recipient.notifications[before:]
+    assert update["message"] == "Person in Entry Breezeway"
+    assert is_silent(update)
