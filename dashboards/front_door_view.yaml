@@ -1,0 +1,22 @@
+# The front-door view: a tapped Alert Notification opens it. See dashboards/README.md.
+# Replace camera.example with the Frigate camera before adding the view to a dashboard.
+title: Front Door
+path: front-door
+icon: mdi:doorbell-video
+type: panel
+subview: true
+cards:
+  - type: custom:advanced-camera-card
+    # The Notification's URL action targets this card by id.
+    card_id: alert_review
+    cameras:
+      - camera_entity: camera.example
+        media:
+          type: reviews
+          # The latest Review, even if already marked reviewed in Frigate.
+          reviewed: all
+    view:
+      default: review
+    profiles:
+      # A timeline below the Review that seeks the recording as it is dragged.
+      - scrubbing

@@ -33,6 +33,8 @@ CAMERA_NAME = "front_door"
 LAST_NOTIFICATION = "input_datetime.example_last_notification"
 BASE_URL = "https://ha.example.com"
 REVIEW_ID = "1790000000.000000-rev1"
+# The card_id of the Advanced Camera Card on the front-door view.
+REVIEW_CARD_ID = "alert_review"
 
 
 @pytest.fixture

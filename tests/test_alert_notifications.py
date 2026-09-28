@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from conftest import (
     BASE_URL,
+    REVIEW_CARD_ID,
     REVIEW_ID,
     Frigate,
     Recipient,
@@ -416,3 +417,69 @@ async def test_alert_that_sent_no_notification_opens_no_quiet_window(
     notification = await next_alert_notification(frigate, recipient)
 
     assert not is_silent(notification)
+
+
+def live_action(notification: dict) -> dict:
+    [action] = [a for a in notification["data"]["actions"] if a["title"] == "Live"]
+    return action
+
+
+async def test_tapping_the_notification_opens_the_latest_review_in_the_app(
+    frigate: Frigate, recipient: Recipient
+) -> None:
+    await frigate.publish_review(
+        review("new", [PERSON], ["person"], ["entry_breezeway"])
+    )
+
+    [notification] = recipient.notifications
+    url = urlparse(notification["data"]["url"])
+    # A relative path stays in the app, on whatever connection it uses.
+    assert not url.scheme and not url.netloc
+    assert url.path == "/lovelace/front-door"
+    assert url.query == f"advanced-camera-card-action.{REVIEW_CARD_ID}.review"
+
+
+async def test_live_action_opens_the_cameras_view_in_the_app(
+    frigate: Frigate, recipient: Recipient
+) -> None:
+    await frigate.publish_review(
+        review("new", [PERSON], ["person"], ["entry_breezeway"])
+    )
+
+    [notification] = recipient.notifications
+    action = live_action(notification)
+    assert action["action"] == "URI"
+    assert action["uri"] == "/lovelace/cameras"
+
+
+async def test_updates_keep_the_tap_and_live_action(
+    frigate: Frigate, recipient: Recipient
+) -> None:
+    await frigate.publish_review(
+        review("new", [PERSON], ["person"], ["entry_breezeway"])
+    )
+    await frigate.publish_review(
+        review("end", [PERSON], ["person"], ["entry_breezeway"])
+    )
+
+    first, *updates = recipient.notifications
+    assert updates
+    for update in updates:
+        assert update["data"]["url"] == first["data"]["url"]
+        assert live_action(update) == live_action(first)
+
+
+@pytest.mark.parametrize(
+    "blueprint_input",
+    [{"review_view": "/our-dashboard/porch/", "live_view": " /our-dashboard/cams "}],
+)
+async def test_review_and_live_views_are_inputs(
+    frigate: Frigate, recipient: Recipient
+) -> None:
+    await frigate.publish_review(
+        review("new", [PERSON], ["person"], ["entry_breezeway"])
+    )
+
+    [notification] = recipient.notifications
+    assert urlparse(notification["data"]["url"]).path == "/our-dashboard/porch"
+    assert live_action(notification)["uri"] == "/our-dashboard/cams"

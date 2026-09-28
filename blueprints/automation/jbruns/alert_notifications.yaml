@@ -6,8 +6,9 @@ blueprint:
     the Frigate integration's unauthenticated notification proxy; set the
     proxy's expiry to 86400 seconds (24 hours) in the integration's options.
     Updates replace the Notification silently, and a new Alert within the
-    Quiet Window of the previous one arrives silently. See blueprints/README.md in
-    jbruns/ha-elevations.
+    Quiet Window of the previous one arrives silently. Tapping it opens the
+    front-door view in the app; its Live action opens the cameras view. See
+    blueprints/README.md in jbruns/ha-elevations.
   domain: automation
   source_url: https://github.com/jbruns/ha-elevations/blob/main/blueprints/automation/jbruns/alert_notifications.yaml
   homeassistant:
@@ -38,6 +39,24 @@ blueprint:
       selector:
         text:
           type: url
+    review_view:
+      name: Review view
+      description: >-
+        The dashboard view that tapping a Notification opens: the front-door
+        view from dashboards/front_door_view.yaml in jbruns/ha-elevations. A
+        path within Home Assistant, such as /lovelace/front-door, so it opens
+        in the app.
+      default: /lovelace/front-door
+      selector:
+        text:
+    live_view:
+      name: Live view
+      description: >-
+        The dashboard view that the Notification's Live action opens, such as
+        /lovelace/cameras. A path within Home Assistant, so it opens in the app.
+      default: /lovelace/cameras
+      selector:
+        text:
     report_wait:
       name: Wait for Tracked Object reports
       description: >-
@@ -99,7 +118,16 @@ variables:
   report_wait: !input report_wait
   quiet_window: !input quiet_window
   last_notification: !input last_notification
+  review_view_input: !input review_view
+  live_view_input: !input live_view
   base_url: "{{ base_url_input | trim | regex_replace('/+$', '') }}"
+  # Relative paths, so the app opens them itself, at home or away.
+  # The URL action makes the front-door view's card load the latest Review
+  # even when the app already has the view open. alert_review is the card_id
+  # in dashboards/front_door_view.yaml.
+  review_url: >-
+    {{ review_view_input | trim | regex_replace('/+$', '') }}?advanced-camera-card-action.alert_review.review
+  live_url: "{{ live_view_input | trim | regex_replace('/+$', '') }}"
   camera_name: "{{ state_attr(camera_entity, 'camera_name') }}"
   review: "{{ trigger.payload_json.after }}"
   review_id: "{{ review.id }}"
@@ -221,6 +249,11 @@ actions:
                       data:
                         tag: "{{ review_id }}"
                         group: "{{ camera_name }}"
+                        url: "{{ review_url }}"
+                        actions:
+                          - action: URI
+                            title: Live
+                            uri: "{{ live_url }}"
                         attachment:
                           # A new URL on every update, or iOS shows its cached image (ADR 0003).
                           url: >-
