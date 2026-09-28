@@ -7,7 +7,6 @@ notify calls a Recipient would receive. Every value here is a placeholder
 
 import asyncio
 import json
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,8 +21,11 @@ from pytest_homeassistant_custom_component.common import (
     async_mock_service,
 )
 
-BLUEPRINTS = Path(__file__).parent.parent / "blueprints" / "automation" / "jbruns"
-BLUEPRINT = BLUEPRINTS / "alert_notifications.yaml"
+from testing.blueprints import OWNER
+
+ALERT_BLUEPRINT = "front_door_alert_notifications.yaml"
+DOORBELL_BLUEPRINT = "front_door_doorbell_press_notifications.yaml"
+BLUEPRINT = Path(__file__).parent.parent / "blueprints" / "automation" / ALERT_BLUEPRINT
 CAMERA_ENTITY = "camera.example"
 CAMERA_NAME = "front_door"
 CAMERA_FRIENDLY_NAME = "Front Door"
@@ -47,15 +49,6 @@ def expected_lingering_timers() -> bool:
 def expected_lingering_tasks() -> bool:
     # A run waits for its Review's next message until the Review ends.
     return True
-
-
-@pytest.fixture
-def hass_config_dir(hass_tmp_config_dir: str) -> str:
-    target = Path(hass_tmp_config_dir) / "blueprints" / "automation" / "jbruns"
-    target.mkdir(parents=True, exist_ok=True)
-    for blueprint in BLUEPRINTS.glob("*.yaml"):
-        shutil.copy(blueprint, target / blueprint.name)
-    return hass_tmp_config_dir
 
 
 def review(
@@ -213,7 +206,7 @@ def alert_automation(
     return {
         "alias": "Alert Notifications",
         "use_blueprint": {
-            "path": "jbruns/alert_notifications.yaml",
+            "path": f"{OWNER}/{ALERT_BLUEPRINT}",
             "input": {
                 "camera": CAMERA_ENTITY,
                 "recipients": [recipient.device_id],
@@ -233,7 +226,7 @@ def doorbell_automation(
     return {
         "alias": "Doorbell Press Notifications",
         "use_blueprint": {
-            "path": "jbruns/doorbell_press_notifications.yaml",
+            "path": f"{OWNER}/{DOORBELL_BLUEPRINT}",
             "input": {
                 "doorbell": DOORBELL_ENTITY,
                 "camera": CAMERA_ENTITY,

@@ -10,9 +10,9 @@ blueprint:
     front-door view in the app; its Live action opens the cameras view. Its
     Snooze actions pause Alert Notifications to that phone, recorded in the
     phone's Snooze helper, input_datetime.snooze_<phone name>. See
-    blueprints/README.md in jbruns/ha-elevations.
+    front-door/README.md in jbruns/ha-elevations.
   domain: automation
-  source_url: https://github.com/jbruns/ha-elevations/blob/main/blueprints/automation/jbruns/alert_notifications.yaml
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/front-door/blueprints/automation/front_door_alert_notifications.yaml
   homeassistant:
     min_version: "2025.4.0"
   input:
@@ -45,9 +45,9 @@ blueprint:
       name: Review view
       description: >-
         The dashboard view that tapping a Notification opens: the front-door
-        view from dashboards/front_door_view.yaml in jbruns/ha-elevations. A
-        path within Home Assistant, such as /lovelace/front-door, so it opens
-        in the app.
+        view from front-door/dashboards/front_door_view.yaml in
+        jbruns/ha-elevations. A path within Home Assistant, such as
+        /lovelace/front-door, so it opens in the app.
       default: /lovelace/front-door
       selector:
         text:
@@ -137,7 +137,7 @@ variables:
   # Relative paths, so the app opens them itself, at home or away.
   # The URL action makes the front-door view's card load the latest Review
   # even when the app already has the view open. alert_review is the card_id
-  # in dashboards/front_door_view.yaml.
+  # in front-door/dashboards/front_door_view.yaml.
   review_url: >-
     {{ review_view_input | trim | regex_replace('/+$', '') }}?advanced-camera-card-action.alert_review.review
   live_url: "{{ live_view_input | trim | regex_replace('/+$', '') }}"

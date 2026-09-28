@@ -21,6 +21,6 @@ __pycache__/
 # See AGENTS.md.
 .pii-denylist
 
-# Frigate: real values and rendered output. Only the template frigate/config.yaml is committed.
-frigate/*.local.yaml
-frigate/build/
+# Frigate: real values and rendered output. Only the template front-door/frigate/config.yaml is committed.
+front-door/frigate/*.local.yaml
+front-door/frigate/build/

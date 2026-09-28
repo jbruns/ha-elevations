@@ -1,4 +1,4 @@
-# The front-door view: a tapped Alert Notification opens it. See dashboards/README.md.
+# The front-door view: a tapped Alert Notification opens it. See front-door/README.md.
 # Replace camera.example with the Frigate camera, and each Recipient's Phone A /
 # input_datetime.snooze_phone_a with their phone's name and Snooze helper, before
 # adding the view to a dashboard.

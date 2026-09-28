@@ -6,8 +6,8 @@ The Frigate 0.18 add-on cannot load these values from anywhere else: `secrets.ya
 
 ## Render
 
-1. Create `frigate/secrets.local.yaml` (gitignored), with one `FRIGATE_NAME: value` line for every placeholder in `config.yaml`. Values are taken literally.
-2. Run `scripts/render-frigate-config.py`. It writes `frigate/build/config.yaml` (gitignored) and fails on any undefined placeholder.
+1. Create `front-door/frigate/secrets.local.yaml` (gitignored), with one `FRIGATE_NAME: value` line for every placeholder in `config.yaml`. Values are taken literally.
+2. Run `scripts/render-frigate-config.py`. It writes `front-door/frigate/build/config.yaml` (gitignored) and fails on any undefined placeholder.
 3. Deploy the rendered file as the add-on's `config.yaml`, then restart Frigate.
 
 ## Change the config

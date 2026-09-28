@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Render frigate/config.yaml into a deployable Frigate config.
+"""Render front-door/frigate/config.yaml into a deployable Frigate config.
 
 Every {FRIGATE_*} placeholder in the template is replaced with its value from
-frigate/secrets.local.yaml (one `KEY: value` per line, taken literally). Fails
-if the template uses a placeholder the secrets file does not define.
+front-door/frigate/secrets.local.yaml (one `KEY: value` per line, taken
+literally). Fails if the template uses a placeholder the secrets file does not
+define.
 """
 
 import argparse
@@ -12,6 +13,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+FRIGATE = ROOT / "front-door" / "frigate"
 PLACEHOLDER = re.compile(r"\{(FRIGATE_[A-Z0-9_]+)\}")
 
 
@@ -29,9 +31,9 @@ def load_secrets(path: Path) -> dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--template", type=Path, default=ROOT / "frigate/config.yaml")
-    parser.add_argument("--secrets", type=Path, default=ROOT / "frigate/secrets.local.yaml")
-    parser.add_argument("--output", type=Path, default=ROOT / "frigate/build/config.yaml")
+    parser.add_argument("--template", type=Path, default=FRIGATE / "config.yaml")
+    parser.add_argument("--secrets", type=Path, default=FRIGATE / "secrets.local.yaml")
+    parser.add_argument("--output", type=Path, default=FRIGATE / "build" / "config.yaml")
     args = parser.parse_args()
 
     template = args.template.read_text()

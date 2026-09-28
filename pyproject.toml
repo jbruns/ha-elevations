@@ -1,7 +1,7 @@
 [project]
 name = "ha-elevations"
 version = "0.1.0"
-description = "Home Assistant blueprints and Frigate config for Front Door Notifications"
+description = "Home Assistant blueprints, organised by context"
 requires-python = ">=3.14.2"
 dependencies = []
 
@@ -15,6 +15,8 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# The repo-wide checks, then every context's tests (ADR 0007).
+testpaths = ["tests", "*/tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

@@ -5,9 +5,9 @@ blueprint:
     separate from any Alert Notification. It is time-sensitive, so it breaks
     through Focus modes. Long-pressing it shows the camera's live stream;
     tapping it or its Talk action opens the cameras view, where two-way audio
-    works. See blueprints/README.md in jbruns/ha-elevations.
+    works. See front-door/README.md in jbruns/ha-elevations.
   domain: automation
-  source_url: https://github.com/jbruns/ha-elevations/blob/main/blueprints/automation/jbruns/doorbell_press_notifications.yaml
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/front-door/blueprints/automation/front_door_doorbell_press_notifications.yaml
   homeassistant:
     min_version: "2025.4.0"
   input:

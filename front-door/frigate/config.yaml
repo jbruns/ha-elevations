@@ -1,5 +1,6 @@
 # Frigate config template. {FRIGATE_*} placeholders are filled from the gitignored
-# frigate/secrets.local.yaml by scripts/render-frigate-config.py. See frigate/README.md.
+# front-door/frigate/secrets.local.yaml by scripts/render-frigate-config.py. See
+# front-door/frigate/README.md.
 mqtt:
   host: core-mosquitto
   user: "{FRIGATE_MQTT_USER}"
