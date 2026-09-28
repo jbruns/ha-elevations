@@ -1,0 +1,86 @@
+blueprint:
+  name: Doorbell Press Notifications
+  description: >-
+    Sends a Notification to each Recipient when the doorbell is pressed,
+    separate from any Alert Notification. It is time-sensitive, so it breaks
+    through Focus modes. Long-pressing it shows the camera's live stream;
+    tapping it or its Talk action opens the cameras view, where two-way audio
+    works. See blueprints/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/blueprints/automation/jbruns/doorbell_press_notifications.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    doorbell:
+      name: Doorbell button
+      description: >-
+        The binary sensor that turns on when the doorbell button is pressed,
+        such as a Reolink doorbell's Visitor sensor.
+      selector:
+        entity:
+          filter:
+            domain: binary_sensor
+    camera:
+      name: Camera
+      description: The camera whose live stream the expanded Notification shows.
+      selector:
+        entity:
+          filter:
+            domain: camera
+    recipients:
+      name: Recipients
+      description: The phones that receive Notifications.
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: mobile_app
+    cameras_view:
+      name: Cameras view
+      description: >-
+        The dashboard view that tapping the Notification or its Talk action
+        opens, one with a live camera card that has two-way audio, such as
+        /lovelace/cameras. A path within Home Assistant, so it opens in the app.
+      default: /lovelace/cameras
+      selector:
+        text:
+
+mode: parallel
+max: 10
+
+triggers:
+  - trigger: state
+    entity_id: !input doorbell
+    from: "off"
+    to: "on"
+
+variables:
+  camera_entity: !input camera
+  recipients: !input recipients
+  cameras_view_input: !input cameras_view
+  cameras_url: "{{ cameras_view_input | trim | regex_replace('/+$', '') }}"
+  title: "{{ state_attr(camera_entity, 'friendly_name') or 'Doorbell' }}"
+  # Unique per press, and never a Review id, so it replaces no other Notification.
+  tag: "doorbell-{{ trigger.to_state.context.id }}"
+
+actions:
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }}"
+            message: Someone pressed the doorbell
+            data:
+              tag: "{{ tag }}"
+              group: doorbell
+              url: "{{ cameras_url }}"
+              # The iOS app streams this camera when the Notification is expanded.
+              entity_id: "{{ camera_entity }}"
+              actions:
+                - action: URI
+                  title: Talk
+                  uri: "{{ cameras_url }}"
+              push:
+                sound: default
+                interruption-level: time-sensitive

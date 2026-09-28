@@ -17,4 +17,4 @@ Views to add to a Home Assistant dashboard. They use placeholders like `camera.e
 2. Paste the file's contents as a new item under `views:`. Replace `camera.example` with the Frigate camera.
 3. Save. The view's path is `/<dashboard>/front-door`, for example `/lovelace/front-door`. Give that path as the Review view in the Alert Notifications blueprint.
 
-The Live action of a Notification opens a view you already have with a live camera card, for example a cameras view with two-way audio. Give its path as the blueprint's Live view.
+The Live action of a Notification opens a view you already have with a live camera card, for example a cameras view with two-way audio. Give its path as the blueprint's Live view. A Doorbell Press Notification's Talk action opens the same view; give its path as the Doorbell Press Notifications blueprint's Cameras view.

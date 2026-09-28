@@ -1,7 +1,8 @@
-"""Runs the Alert Notifications blueprint in a real Home Assistant core.
+"""Runs the blueprints in a real Home Assistant core.
 
-Tests publish Frigate MQTT payloads and read back the notify calls a Recipient
-would receive. Every value here is a placeholder (ADR 0004).
+Tests publish Frigate MQTT payloads, press the doorbell, and read back the
+notify calls a Recipient would receive. Every value here is a placeholder
+(ADR 0004).
 """
 
 import asyncio
@@ -21,15 +22,12 @@ from pytest_homeassistant_custom_component.common import (
     async_mock_service,
 )
 
-BLUEPRINT = (
-    Path(__file__).parent.parent
-    / "blueprints"
-    / "automation"
-    / "jbruns"
-    / "alert_notifications.yaml"
-)
+BLUEPRINTS = Path(__file__).parent.parent / "blueprints" / "automation" / "jbruns"
+BLUEPRINT = BLUEPRINTS / "alert_notifications.yaml"
 CAMERA_ENTITY = "camera.example"
 CAMERA_NAME = "front_door"
+CAMERA_FRIENDLY_NAME = "Front Door"
+DOORBELL_ENTITY = "binary_sensor.example_doorbell"
 LAST_NOTIFICATION = "input_datetime.example_last_notification"
 BASE_URL = "https://ha.example.com"
 REVIEW_ID = "1790000000.000000-rev1"
@@ -53,7 +51,8 @@ def expected_lingering_tasks() -> bool:
 def hass_config_dir(hass_tmp_config_dir: str) -> str:
     target = Path(hass_tmp_config_dir) / "blueprints" / "automation" / "jbruns"
     target.mkdir(parents=True, exist_ok=True)
-    shutil.copy(BLUEPRINT, target / BLUEPRINT.name)
+    for blueprint in BLUEPRINTS.glob("*.yaml"):
+        shutil.copy(blueprint, target / blueprint.name)
     return hass_tmp_config_dir
 
 
@@ -184,18 +183,69 @@ async def recipient(hass: HomeAssistant) -> Recipient:
 
 @pytest.fixture
 def blueprint_input() -> dict[str, Any]:
-    """Extra blueprint inputs; override in a test module or with parametrize."""
+    """Extra Alert Notifications inputs; override in a test module or with parametrize."""
     return {}
 
 
 @pytest.fixture
+def doorbell_input() -> dict[str, Any]:
+    """Extra Doorbell Press Notifications inputs; override like blueprint_input."""
+    return {}
+
+
+@pytest.fixture
+def alert_automation(
+    recipient: Recipient, blueprint_input: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "alias": "Alert Notifications",
+        "use_blueprint": {
+            "path": "jbruns/alert_notifications.yaml",
+            "input": {
+                "camera": CAMERA_ENTITY,
+                "recipients": [recipient.device_id],
+                "base_url": BASE_URL,
+                "last_notification": LAST_NOTIFICATION,
+                **blueprint_input,
+            },
+        },
+    }
+
+
+@pytest.fixture
+def doorbell_automation(
+    hass: HomeAssistant, recipient: Recipient, doorbell_input: dict[str, Any]
+) -> dict[str, Any]:
+    hass.states.async_set(DOORBELL_ENTITY, "off")
+    return {
+        "alias": "Doorbell Press Notifications",
+        "use_blueprint": {
+            "path": "jbruns/doorbell_press_notifications.yaml",
+            "input": {
+                "doorbell": DOORBELL_ENTITY,
+                "camera": CAMERA_ENTITY,
+                "recipients": [recipient.device_id],
+                **doorbell_input,
+            },
+        },
+    }
+
+
+@pytest.fixture
+def automations(alert_automation: dict[str, Any]) -> list[dict[str, Any]]:
+    """The automations to create; override in a test module to add others."""
+    return [alert_automation]
+
+
+@pytest.fixture
 async def frigate(
-    hass: HomeAssistant,
-    mqtt_mock: Any,
-    recipient: Recipient,
-    blueprint_input: dict[str, Any],
+    hass: HomeAssistant, mqtt_mock: Any, automations: list[dict[str, Any]]
 ) -> Frigate:
-    hass.states.async_set(CAMERA_ENTITY, "idle", {"camera_name": CAMERA_NAME})
+    hass.states.async_set(
+        CAMERA_ENTITY,
+        "idle",
+        {"camera_name": CAMERA_NAME, "friendly_name": CAMERA_FRIENDLY_NAME},
+    )
     assert await async_setup_component(
         hass,
         "input_datetime",
@@ -205,25 +255,10 @@ async def frigate(
             }
         },
     )
-    assert await async_setup_component(
-        hass,
-        "automation",
-        {
-            "automation": {
-                "alias": "Alert Notifications",
-                "use_blueprint": {
-                    "path": "jbruns/alert_notifications.yaml",
-                    "input": {
-                        "camera": CAMERA_ENTITY,
-                        "recipients": [recipient.device_id],
-                        "base_url": BASE_URL,
-                        "last_notification": LAST_NOTIFICATION,
-                        **blueprint_input,
-                    },
-                },
-            }
-        },
-    )
+    assert await async_setup_component(hass, "automation", {"automation": automations})
     await hass.async_block_till_done()
-    assert hass.states.get("automation.alert_notifications") is not None
+    states = hass.states.async_all("automation")
+    assert len(states) == len(automations)
+    # An automation whose blueprint fails to load is created unavailable.
+    assert all(state.state == "on" for state in states)
     return Frigate(hass)
