@@ -1,0 +1,553 @@
+blueprint:
+  name: Comfort Policy
+  description: >-
+    Sets the thermostat to the Comfort Target: sleep or daytime values,
+    adjusted for the forecast and indoor humidity. Applies a Setback once the
+    household has been away for a while, and restores the Target on return.
+    Pulls a manual change back only when it strays outside the Comfort Band.
+    Acts only in heat, cool or heat_cool; never changes an off thermostat or
+    anything during a Door Pause. Numbers are in the thermostat's unit; the
+    defaults assume °F. See climate/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/climate/blueprints/automation/climate_comfort_policy.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    entities:
+      name: Entities
+      icon: mdi:thermostat
+      input:
+        thermostat:
+          name: Thermostat
+          selector:
+            entity:
+              filter:
+                domain: climate
+        indoor_humidity:
+          name: Indoor humidity sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+                device_class: humidity
+        outdoor_temperature:
+          name: Outdoor temperature sensor
+          description: Its current reading counts towards the forecast high and low.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+                device_class: temperature
+        weather:
+          name: Weather
+          description: A weather entity with an hourly forecast.
+          selector:
+            entity:
+              filter:
+                domain: weather
+        home_zone:
+          name: Home zone
+          description: Household Home means at least one person is in this zone.
+          default: zone.home
+          selector:
+            entity:
+              filter:
+                domain: zone
+        sleep_start:
+          name: Sleep start
+          description: A time-only Date and time helper.
+          selector:
+            entity:
+              filter:
+                domain: input_datetime
+        wake_time:
+          name: Wake time
+          description: A time-only Date and time helper.
+          selector:
+            entity:
+              filter:
+                domain: input_datetime
+        door_pause:
+          name: Door Pause helper
+          description: >-
+            The Toggle helper that is on during a Door Pause, shared with the
+            Door Pause blueprint.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+    comfort_targets:
+      name: Comfort Targets
+      icon: mdi:home-thermometer
+      collapsed: true
+      input:
+        forecast_lookahead:
+          name: Forecast lookahead
+          description: Hours of hourly forecast that set the forecast high and low.
+          default: 12
+          selector:
+            number:
+              min: 1
+              max: 48
+              unit_of_measurement: h
+              mode: box
+        sleep_heating:
+          name: Sleep heating target
+          default: 65
+          selector: &temperature
+            number:
+              min: 0
+              max: 120
+              step: 0.5
+              unit_of_measurement: °
+              mode: box
+        sleep_cooling:
+          name: Sleep cooling target
+          default: 67
+          selector: *temperature
+        day_heating:
+          name: Daytime heating target
+          default: 66
+          selector: *temperature
+        heat_plus_2_below:
+          name: Heating +2 when the forecast low is at or below
+          default: 40
+          selector: *temperature
+        heat_plus_4_below:
+          name: Heating +4 when the forecast low is at or below
+          default: 20
+          selector: *temperature
+        day_cooling:
+          name: Daytime cooling target
+          default: 76
+          selector: *temperature
+        cool_minus_2_above:
+          name: Cooling −2 when the forecast high is at or above
+          default: 80
+          selector: *temperature
+        cool_minus_4_above:
+          name: Cooling −4 when the forecast high is at or above
+          default: 90
+          selector: *temperature
+        heat_cool_gap:
+          name: Minimum heat/cool gap
+          description: In heat_cool, the cooling setting is at least this far above the heating one.
+          default: 3
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 0.5
+              unit_of_measurement: °
+              mode: box
+    humidity:
+      name: Humidity
+      icon: mdi:water-percent
+      collapsed: true
+      input:
+        humidity_state:
+          name: Humidity helper
+          description: >-
+            A Dropdown helper with the options normal, humid and dry. The
+            policy records here whether the air is humid or dry, so it stays
+            that way between the enter and leave thresholds.
+          selector:
+            entity:
+              filter:
+                domain: input_select
+        humid_above:
+          name: Humid at or above
+          description: >-
+            Humid air caps the cooling target. The Target is re-applied once
+            humidity has stayed above this for the humid duration.
+          default: 60
+          selector: &humidity
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
+              mode: box
+        humid_cooling_cap:
+          name: Humid cooling cap
+          default: 74
+          selector: *temperature
+        humid_leave_below:
+          name: Humid ends below
+          description: The Target is re-applied once humidity has stayed below this for the humid duration.
+          default: 55
+          selector: *humidity
+        humid_for:
+          name: Humid duration
+          default:
+            minutes: 15
+          selector:
+            duration:
+        dry_below:
+          name: Dry below
+          description: >-
+            Dry air lowers the heating target by 1. The Target is re-applied
+            once humidity has stayed below this for the dry duration.
+          default: 35
+          selector: *humidity
+        dry_heating_floor:
+          name: Dry heating floor
+          description: Dry air never lowers the heating target below this.
+          default: 65
+          selector: *temperature
+        dry_leave_above:
+          name: Dry ends above
+          description: The Target is re-applied once humidity has stayed above this for the dry duration.
+          default: 38
+          selector: *humidity
+        dry_for:
+          name: Dry duration
+          default:
+            minutes: 30
+          selector:
+            duration:
+    setback:
+      name: Setback
+      icon: mdi:home-export-outline
+      collapsed: true
+      input:
+        setback_after:
+          name: Setback after away for
+          default:
+            minutes: 30
+          selector:
+            duration:
+        setback_heating:
+          name: Setback heating
+          default: 60
+          selector: *temperature
+        setback_cooling:
+          name: Setback cooling
+          default: 74
+          selector: *temperature
+    comfort_band:
+      name: Comfort Band
+      icon: mdi:arrow-expand-vertical
+      collapsed: true
+      input:
+        band_below:
+          name: Below the heating target by
+          default: 2
+          selector: &offset
+            number:
+              min: 0
+              max: 20
+              step: 0.5
+              unit_of_measurement: °
+              mode: box
+        band_above:
+          name: Above the cooling target by
+          default: 3
+          selector: *offset
+        band_interval:
+          name: Check interval
+          default: "/15"
+          selector:
+            select:
+              options:
+                - label: Every 5 minutes
+                  value: "/5"
+                - label: Every 10 minutes
+                  value: "/10"
+                - label: Every 15 minutes
+                  value: "/15"
+                - label: Every 20 minutes
+                  value: "/20"
+                - label: Every 30 minutes
+                  value: "/30"
+
+# One run at a time, so a Band check always sees the Target just applied.
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: time
+    at: !input sleep_start
+    id: apply
+  - trigger: time
+    at: !input wake_time
+    id: apply
+  - trigger: homeassistant
+    event: start
+    id: start
+  - trigger: numeric_state
+    entity_id: !input indoor_humidity
+    above: !input humid_above
+    for: !input humid_for
+    id: humid_enters
+  - trigger: numeric_state
+    entity_id: !input indoor_humidity
+    below: !input humid_leave_below
+    for: !input humid_for
+    id: humid_leaves
+  - trigger: numeric_state
+    entity_id: !input indoor_humidity
+    below: !input dry_below
+    for: !input dry_for
+    id: dry_enters
+  - trigger: numeric_state
+    entity_id: !input indoor_humidity
+    above: !input dry_leave_above
+    for: !input dry_for
+    id: dry_leaves
+  - trigger: numeric_state
+    entity_id: !input home_zone
+    above: 0
+    id: apply
+  - trigger: state
+    entity_id: !input door_pause
+    from: "on"
+    to: "off"
+    id: door_pause_ended
+  - trigger: numeric_state
+    entity_id: !input home_zone
+    below: 1
+    for: !input setback_after
+    id: setback
+  - trigger: time_pattern
+    minutes: !input band_interval
+    id: band
+  - trigger: state
+    entity_id: !input thermostat
+    attribute: temperature
+    id: band
+  - trigger: state
+    entity_id: !input thermostat
+    attribute: target_temp_low
+    id: band
+  - trigger: state
+    entity_id: !input thermostat
+    attribute: target_temp_high
+    id: band
+  # A mode change, not an attribute change.
+  - trigger: state
+    entity_id: !input thermostat
+    to: ~
+    id: band
+
+variables:
+  thermostat_entity: !input thermostat
+  outdoor_entity: !input outdoor_temperature
+  weather_entity: !input weather
+  humidity_state_entity: !input humidity_state
+  home_zone_entity: !input home_zone
+  sleep_start_entity: !input sleep_start
+  wake_time_entity: !input wake_time
+  forecast_lookahead: !input forecast_lookahead
+  sleep_heating: !input sleep_heating
+  sleep_cooling: !input sleep_cooling
+  day_heating: !input day_heating
+  heat_plus_2_below: !input heat_plus_2_below
+  heat_plus_4_below: !input heat_plus_4_below
+  day_cooling: !input day_cooling
+  cool_minus_2_above: !input cool_minus_2_above
+  cool_minus_4_above: !input cool_minus_4_above
+  heat_cool_gap: !input heat_cool_gap
+  humid_cooling_cap: !input humid_cooling_cap
+  dry_heating_floor: !input dry_heating_floor
+  setback_heating: !input setback_heating
+  setback_cooling: !input setback_cooling
+  band_below: !input band_below
+  band_above: !input band_above
+  active_modes: ["heat", "cool", "heat_cool"]
+
+actions:
+  # Record the humidity edge first, whatever else stops the run.
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: [humid_enters, dry_enters]
+        sequence:
+          - action: input_select.select_option
+            target:
+              entity_id: !input humidity_state
+            data:
+              option: "{{ 'humid' if trigger.id == 'humid_enters' else 'dry' }}"
+      - conditions:
+          - condition: trigger
+            id: [humid_leaves, dry_leaves]
+          - condition: template
+            value_template: >-
+              {{ states(humidity_state_entity)
+                 == ('humid' if trigger.id == 'humid_leaves' else 'dry') }}
+        sequence:
+          - action: input_select.select_option
+            target:
+              entity_id: !input humidity_state
+            data:
+              option: normal
+  - condition: state
+    entity_id: !input door_pause
+    state: "off"
+  # The Door Pause may end just before the thermostat returns to its mode.
+  - if:
+      - condition: trigger
+        id: door_pause_ended
+    then:
+      - wait_template: "{{ states(thermostat_entity) in active_modes }}"
+        timeout:
+          minutes: 1
+        continue_on_timeout: false
+  - condition: template
+    value_template: "{{ states(thermostat_entity) in active_modes }}"
+  - variables:
+      mode: "{{ states(thermostat_entity) }}"
+      household_home: "{{ states(home_zone_entity) | int(0) > 0 }}"
+      # A restart forgets how long the household has been away, so starting
+      # while away applies the Setback at once.
+      setback: "{{ trigger.id == 'setback' or (trigger.id == 'start' and not household_home) }}"
+  # A Setback only while away; everything else only while home.
+  - condition: template
+    value_template: "{{ household_home != setback }}"
+  - action: weather.get_forecasts
+    target:
+      entity_id: !input weather
+    data:
+      type: hourly
+    response_variable: forecasts
+    continue_on_error: true
+  # Each value is worked out in one template, so no datetime is ever kept in a
+  # variable (which would render it to a string) and then compared.
+  - variables:
+      sleeping: >-
+        {%- set start = state_attr(sleep_start_entity, 'hour') -%}
+        {%- set wake = state_attr(wake_time_entity, 'hour') -%}
+        {%- if start is number and wake is number -%}
+          {%- set start = today_at('%02d:%02d:%02d' % (start,
+                state_attr(sleep_start_entity, 'minute') | int(0),
+                state_attr(sleep_start_entity, 'second') | int(0))) -%}
+          {%- set wake = today_at('%02d:%02d:%02d' % (wake,
+                state_attr(wake_time_entity, 'minute') | int(0),
+                state_attr(wake_time_entity, 'second') | int(0))) -%}
+          {%- if start > wake -%}
+            {{ now() >= start or now() < wake }}
+          {%- else -%}
+            {{ now() >= start and now() < wake }}
+          {%- endif -%}
+        {%- else -%}
+          false
+        {%- endif -%}
+      forecast_temperatures: >-
+        {%- set ns = namespace(values=[]) -%}
+        {%- set outdoor = states(outdoor_entity) -%}
+        {%- if is_number(outdoor) -%}
+          {%- set ns.values = ns.values + [outdoor | float] -%}
+        {%- endif -%}
+        {%- set horizon = now() + timedelta(hours=forecast_lookahead | float) -%}
+        {%- set response = forecasts if forecasts is defined and forecasts is mapping else {} -%}
+        {%- set hours = (response.get(weather_entity) or {}).get('forecast') or [] -%}
+        {%- for hour in hours if hour is mapping -%}
+          {%- set starts = as_datetime(hour.get('datetime')) -%}
+          {%- set temperature = hour.get('temperature') -%}
+          {%- if starts is not none and as_local(starts) < horizon and is_number(temperature) -%}
+            {%- set ns.values = ns.values + [temperature | float] -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.values }}
+      forecast_low: "{{ forecast_temperatures | min if forecast_temperatures else none }}"
+      forecast_high: "{{ forecast_temperatures | max if forecast_temperatures else none }}"
+      humid: "{{ is_state(humidity_state_entity, 'humid') }}"
+      dry: "{{ is_state(humidity_state_entity, 'dry') }}"
+      # The Comfort Target, or the Setback.
+      heating: >-
+        {%- if setback -%}
+          {%- set h = setback_heating -%}
+        {%- else -%}
+          {%- if sleeping -%}
+            {%- set h = sleep_heating -%}
+          {%- elif forecast_low is number and forecast_low <= heat_plus_4_below -%}
+            {%- set h = day_heating + 4 -%}
+          {%- elif forecast_low is number and forecast_low <= heat_plus_2_below -%}
+            {%- set h = day_heating + 2 -%}
+          {%- else -%}
+            {%- set h = day_heating -%}
+          {%- endif -%}
+          {%- if dry -%}
+            {%- set h = [h - 1, [h, dry_heating_floor] | min] | max -%}
+          {%- endif -%}
+        {%- endif -%}
+        {{ h }}
+      cooling: >-
+        {%- if setback -%}
+          {%- set c = setback_cooling -%}
+        {%- else -%}
+          {%- if sleeping -%}
+            {%- set c = sleep_cooling -%}
+          {%- elif forecast_high is number and forecast_high >= cool_minus_4_above -%}
+            {%- set c = day_cooling - 4 -%}
+          {%- elif forecast_high is number and forecast_high >= cool_minus_2_above -%}
+            {%- set c = day_cooling - 2 -%}
+          {%- else -%}
+            {%- set c = day_cooling -%}
+          {%- endif -%}
+          {%- if humid -%}
+            {%- set c = [c, humid_cooling_cap] | min -%}
+          {%- endif -%}
+        {%- endif -%}
+        {{ c }}
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: band
+        sequence:
+          - variables:
+              band_low: "{{ heating - band_below }}"
+              band_high: "{{ cooling + band_above }}"
+              # The settings pulled back into the Band, or {} if already inside.
+              band_setting: >-
+                {%- if mode == 'heat_cool' -%}
+                  {%- set low = state_attr(thermostat_entity, 'target_temp_low') -%}
+                  {%- set high = state_attr(thermostat_entity, 'target_temp_high') -%}
+                  {%- if low is number and high is number -%}
+                    {%- set new_low = [[low, band_low] | max, band_high] | min -%}
+                    {%- set new_high = [[high, band_low] | max, band_high] | min -%}
+                    {%- if new_high - new_low < heat_cool_gap -%}
+                      {%- set new_high = [new_low + heat_cool_gap, band_high] | min -%}
+                      {%- set new_low = [new_low, new_high - heat_cool_gap] | min -%}
+                    {%- endif -%}
+                    {%- if new_low != low or new_high != high -%}
+                      {{ {'target_temp_low': new_low, 'target_temp_high': new_high} }}
+                    {%- else -%}
+                      {{ {} }}
+                    {%- endif -%}
+                  {%- else -%}
+                    {{ {} }}
+                  {%- endif -%}
+                {%- else -%}
+                  {%- set current = state_attr(thermostat_entity, 'temperature') -%}
+                  {%- if current is number -%}
+                    {%- set new = [[current, band_low] | max, band_high] | min -%}
+                    {%- if new != current -%}
+                      {{ {'temperature': new} }}
+                    {%- else -%}
+                      {{ {} }}
+                    {%- endif -%}
+                  {%- else -%}
+                    {{ {} }}
+                  {%- endif -%}
+                {%- endif -%}
+          - condition: template
+            value_template: "{{ band_setting | length > 0 }}"
+          - action: climate.set_temperature
+            target:
+              entity_id: !input thermostat
+            data: "{{ band_setting }}"
+    # Apply the Comfort Target, or the Setback, for the current mode.
+    default:
+      - action: climate.set_temperature
+        target:
+          entity_id: !input thermostat
+        data: >-
+          {%- if mode == 'heat_cool' -%}
+            {{ {'target_temp_low': heating,
+                'target_temp_high': [cooling, heating + heat_cool_gap] | max} }}
+          {%- elif mode == 'heat' -%}
+            {{ {'temperature': heating} }}
+          {%- else -%}
+            {{ {'temperature': cooling} }}
+          {%- endif -%}

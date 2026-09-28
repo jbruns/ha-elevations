@@ -7,7 +7,7 @@ Home Assistant automations for one household, written as Blueprints that other h
 The repo is organised by context (ADR 0007). Each context's folder holds its glossary (`CONTEXT.md`), README, blueprints, tests and any dashboards or other Home Assistant assets. [CONTEXT-MAP.md](./CONTEXT-MAP.md) describes the contexts and how they relate.
 
 - [Front Door](./front-door/README.md): Notifications about activity at the front door.
-- [Climate](./climate/CONTEXT.md): comfort, and when to open or close the windows.
+- [Climate](./climate/README.md): comfort, and when to open or close the windows.
 - [Infrastructure](./infrastructure/CONTEXT.md): tells the Administrator when the home's systems fail or recover.
 - [Safety](./safety/CONTEXT.md): warns the household about hazards in the home.
 
