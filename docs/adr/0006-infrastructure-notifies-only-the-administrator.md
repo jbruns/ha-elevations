@@ -1,0 +1,3 @@
+# Infrastructure Notifications go only to the Administrator, through their own blueprints
+
+Failures, Recoveries and the Battery Digest go to the Administrator and never to every Recipient. A Limit Breach in Safety and a numeric Failure in Infrastructure have the same shape: a reading past a limit for a duration. A single blueprint with an audience switch would therefore be less code. We keep them separate anyway. With a shared blueprint, broadcasting infrastructure noise to the whole household is one wrong input away, and the two differ in wording and in Recovery Notifications. Do not merge them.

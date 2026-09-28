@@ -40,10 +40,6 @@ _Avoid_: Alert (that means something else here), message, push
 The period after a Notification during which a Notification for a new Alert arrives without sound.
 _Avoid_: Cooldown, debounce
 
-**Recipient**:
-A household member's phone that receives Notifications.
-_Avoid_: Device, target, subscriber
-
 **Snooze**:
 A time-limited pause of Alert Notifications for one Recipient. It ends when it expires or when the Recipient resumes. It never holds back a Doorbell Press.
 _Avoid_: Mute, silence, do-not-disturb
