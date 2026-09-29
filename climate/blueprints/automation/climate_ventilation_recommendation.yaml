@@ -323,32 +323,32 @@ actions:
           {%- endif -%}
         {%- endfor -%}
         {{ (['Rain is forecast'] if ns.rain else [])
-           + (['Muggy air is forecast'] if ns.muggy else [])
+           + (['Outdoor air is muggy'] if ns.muggy else [])
            + (['Wind gusts are high'] if ns.windy else [])
            + (['Outdoor temperature will fall below ' ~ '%g' | format(comfortable_low) ~ unit] if ns.cold else [])
            + (['Outdoor temperature will rise above ' ~ '%g' | format(comfortable_high) ~ unit] if ns.hot else []) }}
   - variables:
-      # Why Open does not apply now, in the order they are given.
-      now_reasons: >-
+      # Why Open does not apply, most important first; Close gives the first.
+      blockers: >-
         {%- set r = [] -%}
         {%- if complete -%}
           {%- if states(home_zone_entity) | int(0) == 0 -%}
             {%- set r = r + ['No household members are home'] -%}
           {%- endif -%}
           {%- if aqi_entity and aqi > max_aqi -%}
-            {%- set r = r + ['Outdoor AQI is ' ~ '%g' | format(aqi)] -%}
+            {%- set r = r + ['Outdoor AQI is ' ~ '%g' | format(aqi | round(0))] -%}
           {%- endif -%}
-          {#- The forecast's own reason says it, if it also falls outside. -#}
-          {%- set later = forecast_reasons | join(' ') -%}
-          {%- if outdoor < comfortable_low and 'fall below' not in later -%}
-            {%- set r = r + ['Outdoor temperature is below ' ~ '%g' | format(comfortable_low) ~ unit] -%}
-          {%- elif outdoor > comfortable_high and 'rise above' not in later -%}
-            {%- set r = r + ['Outdoor temperature is above ' ~ '%g' | format(comfortable_high) ~ unit] -%}
+          {%- if forecast_reasons -%}
+            {%- set hours = lookahead | int -%}
+            {%- set r = r + [forecast_reasons | join(', ') ~ ' within the next '
+                  ~ (hours ~ ' hours' if hours != 1 else 'hour')] -%}
           {%- endif -%}
-          {%- if indoor >= warm_indoor and outdoor > indoor - margin -%}
-            {%- set r = r + ['Outdoor air is too warm to cool the home'] -%}
-          {%- elif indoor <= cool_indoor and outdoor < indoor + margin -%}
-            {%- set r = r + ['Outdoor air is too cool to warm the home'] -%}
+          {%- set beneficial = comfortable_low <= outdoor <= comfortable_high
+                and ((indoor >= warm_indoor and outdoor <= indoor - margin)
+                     or (indoor <= cool_indoor and outdoor >= indoor + margin)
+                     or (cool_indoor < indoor < warm_indoor)) -%}
+          {%- if not beneficial -%}
+            {%- set r = r + ['Outdoor air would not improve the indoor temperature'] -%}
           {%- endif -%}
         {%- endif -%}
         {{ r }}
@@ -356,7 +356,7 @@ actions:
       recommendation: >-
         {%- if not complete -%}
           neutral
-        {%- elif now_reasons or forecast_reasons -%}
+        {%- elif blockers -%}
           close
         {%- else -%}
           open
@@ -412,19 +412,11 @@ actions:
           entity_id: !input hold_timer
   - variables:
       reason: >-
+        {%- set hours = lookahead | int -%}
         {%- if send == 'open' -%}
-          {%- if indoor >= warm_indoor -%}
-            Outdoor air can cool the home
-          {%- elif indoor <= cool_indoor -%}
-            Outdoor air can warm the home
-          {%- else -%}
-            Outdoor air is comfortable
-          {%- endif -%}
+          Outdoor air is favorable for natural ventilation for the next {{ hours ~ ' hours' if hours != 1 else 'hour' }}
         {%- else -%}
-          {%- set hours = lookahead | int -%}
-          {%- set later = [forecast_reasons | join(', ') ~ ' within the next '
-                ~ (hours ~ ' hours' if hours != 1 else 'hour')] if forecast_reasons else [] -%}
-          {{ (now_reasons + later) | join(', ') }}
+          {{ blockers[0] }}
         {%- endif -%}
       title: "{{ 'Open the windows' if send == 'open' else 'Close the windows' }}"
       message: >-

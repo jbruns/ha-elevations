@@ -149,7 +149,8 @@ async def ventilation(
     return ventilation
 
 
-OPEN = ("Open the windows", "Outdoor air can cool the home. Indoor 76°F, outdoor 72°F.")
+FAVORABLE = "Outdoor air is favorable for natural ventilation for the next 3 hours"
+OPEN = ("Open the windows", f"{FAVORABLE}. Indoor 76°F, outdoor 72°F.")
 
 
 async def opened(ventilation: Ventilation, **inputs: Any) -> None:
@@ -211,16 +212,11 @@ async def test_the_open_hold_is_an_input(ventilation: Ventilation) -> None:
 
 
 @pytest.mark.parametrize(
-    ("indoor", "outdoor", "reason"),
-    [
-        (76, 72, "Outdoor air can cool the home"),
-        (73, 71, "Outdoor air can cool the home"),
-        (70, 72, "Outdoor air is comfortable"),
-        (66, 68, "Outdoor air can warm the home"),
-    ],
+    ("indoor", "outdoor"),
+    [(76, 72), (73, 71), (70, 72), (72.5, 78), (67.5, 68), (66, 68)],
 )
-async def test_open_says_why_ventilation_helps(
-    ventilation: Ventilation, indoor: float, outdoor: float, reason: str
+async def test_open_when_outdoor_air_would_help(
+    ventilation: Ventilation, indoor: float, outdoor: float
 ) -> None:
     await ventilation.temperatures(indoor, outdoor)
     await ventilation.start()
@@ -228,7 +224,7 @@ async def test_open_says_why_ventilation_helps(
     await ventilation.wait(15)
 
     assert ventilation.sent() == [
-        ("Open the windows", f"{reason}. Indoor {indoor}°F, outdoor {outdoor}°F.")
+        ("Open the windows", f"{FAVORABLE}. Indoor {indoor:g}°F, outdoor {outdoor:g}°F.")
     ]
 
 
@@ -353,7 +349,7 @@ async def test_an_aqi_at_the_maximum_still_opens(ventilation: Ventilation) -> No
     [
         (replace(FINE, precipitation_probability=21), "Rain is forecast"),
         (replace(FINE, precipitation=0.02), "Rain is forecast"),
-        (replace(FINE, dew_point=61), "Muggy air is forecast"),
+        (replace(FINE, dew_point=61), "Outdoor air is muggy"),
         (replace(FINE, wind_gust_speed=26), "Wind gusts are high"),
         (replace(FINE, wind_gust_speed=None, wind_speed=26), "Wind gusts are high"),
         (replace(FINE, temperature=67), "Outdoor temperature will fall below 68°F"),
@@ -407,35 +403,48 @@ async def test_every_forecast_reason_is_given(ventilation: Ventilation) -> None:
 
 
 @pytest.mark.parametrize(
-    ("indoor", "outdoor", "reason"),
+    ("indoor", "outdoor"),
     [
-        (82, 67, "Outdoor temperature is below 68°F"),
-        (82, 79, "Outdoor temperature is above 78°F"),
-        (76, 75, "Outdoor air is too warm to cool the home"),
-        (67, 68, "Outdoor air is too cool to warm the home"),
+        # Outdoor is not comfortable.
+        (82, 67),
+        (70, 79),
+        # Outdoor is not far enough below a warm home, or above a cool one.
+        (76, 75),
+        (67, 68),
     ],
 )
 async def test_close_when_outdoor_air_would_not_help(
-    ventilation: Ventilation, indoor: float, outdoor: float, reason: str
+    ventilation: Ventilation, indoor: float, outdoor: float
 ) -> None:
     await opened(ventilation)
 
     await ventilation.temperatures(indoor, outdoor)
 
-    assert await closed_because(ventilation) == reason
+    assert await closed_because(ventilation) == (
+        "Outdoor air would not improve the indoor temperature"
+    )
 
 
-async def test_close_gives_every_reason(ventilation: Ventilation) -> None:
+@pytest.mark.parametrize(
+    ("home", "aqi", "rain", "reason"),
+    [
+        (0, 90, True, "No household members are home"),
+        (1, 90, True, "Outdoor AQI is 90"),
+        (1, 20, True, "Rain is forecast within the next 3 hours"),
+    ],
+)
+async def test_close_gives_the_most_important_reason(
+    ventilation: Ventilation, home: int, aqi: float, rain: bool, reason: str
+) -> None:
     await opened(ventilation)
 
-    await ventilation.household.set_home(0)
-    await ventilation.aqi(90)
-    await ventilation.forecast(replace(FINE, precipitation_probability=50))
+    await ventilation.household.set_home(home)
+    await ventilation.aqi(aqi)
+    await ventilation.temperatures(76, 76)
+    if rain:
+        await ventilation.forecast(replace(FINE, precipitation_probability=50))
 
-    assert await closed_because(ventilation) == (
-        "No household members are home, Outdoor AQI is 90, "
-        "Rain is forecast within the next 3 hours"
-    )
+    assert await closed_because(ventilation) == reason
 
 
 # Neutral: incomplete data changes nothing
@@ -515,8 +524,17 @@ async def test_a_short_forecast_never_opens(ventilation: Ventilation) -> None:
 
 async def test_the_lookahead_is_an_input(ventilation: Ventilation) -> None:
     await ventilation.weather.set_hourly([FINE, FINE])
+    await ventilation.start(lookahead=2)
 
-    await opened(ventilation, lookahead=2)
+    await ventilation.wait(15)
+
+    assert ventilation.sent() == [
+        (
+            "Open the windows",
+            "Outdoor air is favorable for natural ventilation for the next 2 hours. "
+            "Indoor 76°F, outdoor 72°F.",
+        )
+    ]
 
 
 # Without an AQI sensor

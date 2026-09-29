@@ -115,7 +115,7 @@ While the Door Pause helper is on, the Comfort Policy changes nothing. When the 
 - **Holds**: Open is sent once it has held for 10 minutes, and Close once it has held for 5. A Timer helper times each hold, so a brief change sends nothing.
 - **Neutral**: when the indoor, outdoor or AQI reading is missing, or the forecast has fewer than 3 periods, nothing changes: no Open, no Close, and a hold under way carries on.
 - **Active hours**: nothing is sent outside them, and any hold is dropped. When they start, the recommendation is worked out at once and sent without a hold: Open if it applies, or Close if an Open is still active from the day before.
-- **Reasons**: each Notification says why, then gives the indoor and outdoor temperatures. For example, *Rain is forecast, Wind gusts are high within the next 3 hours. Indoor 76°F, outdoor 72°F.* Other reasons read *No household members are home*, *Outdoor AQI is 82*, *Outdoor temperature is below 68°F* or *Outdoor air is too warm to cool the home*. Open reads *Outdoor air can cool the home*, *can warm the home*, or *is comfortable*.
+- **Reasons**: each Notification says why, then gives the indoor and outdoor temperatures. Open reads *Outdoor air is favorable for natural ventilation for the next 3 hours.* Close gives the most important reason only, in this order: *No household members are home*, *Outdoor AQI is 82*, the forecast's reasons (for example, *Rain is forecast, Wind gusts are high within the next 3 hours*), then *Outdoor air would not improve the indoor temperature*. For example: *Rain is forecast within the next 3 hours. Indoor 76°F, outdoor 72°F.*
 
 ### Set up
 
