@@ -55,8 +55,8 @@ For example:
 - **What it lists**, sorted by name, one per line:
   - battery level sensors (`sensor`, device class `battery`) below the low threshold, 25 % by default, for example *Front Door Lock Battery (15%)*. A level at the threshold is not low;
   - battery binary sensors (`binary_sensor`, device class `battery`) that are on, as *Leak Sensor Battery (low)*;
-  - included entities that are on, also as *(low)*. Use these for binary sensors that mean "low battery" without the battery device class, such as a smoke alarm bridge's low-battery sensor;
-  - any of these that has been `unavailable` or `unknown` for longer than *unavailable after*, 24 hours by default, as *Front Door Lock Battery (unavailable)*. One that dropped out more recently is left out. Home Assistant restarting starts the count again.
+  - included entities that are on, also as *(low)*. Use these for binary sensors that mean "low battery" without the battery device class, such as a smoke alarm bridge's low-battery sensor. They are listed only when on: some have no state until their device sends one, so being `unavailable` or `unknown` says nothing about the battery;
+  - battery sensors and battery binary sensors that have been `unavailable` or `unknown` for longer than *unavailable after*, 24 hours by default, as *Front Door Lock Battery (unavailable)*. One that dropped out more recently is left out. Home Assistant restarting starts the count again.
 - **Exclusions**: batteries from the excluded integrations, `mobile_app` (phones) and `nut` (UPSes) by default, and the excluded entities are never listed. Give an integration by its domain, as in `integration_entities()`.
 - **Nothing to report**: when the list is empty, nothing is sent.
 

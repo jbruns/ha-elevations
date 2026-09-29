@@ -316,21 +316,21 @@ async def test_a_battery_binary_sensor_unavailable_for_over_a_day_is_listed(
     assert digest.listed == ["Leak Battery (unavailable)"]
 
 
-async def test_an_included_entity_unavailable_for_over_a_day_is_listed(
-    digest: Digest,
+@pytest.mark.parametrize("state", ["unavailable", "unknown"])
+async def test_an_included_entity_that_is_not_reporting_is_not_listed(
+    digest: Digest, state: str
 ) -> None:
+    """Some low-battery sensors only get a state when the device sends one."""
     await gone_since(
         digest,
         25,
-        lambda: digest.binary(
-            SMOKE_LOW, "unavailable", "Smoke Alarm Low Battery", device_class=None
-        ),
+        lambda: digest.binary(SMOKE_LOW, state, "Smoke Alarm Low Battery", device_class=None),
     )
     await digest.start(included_entities=[SMOKE_LOW])
 
     await digest.run_at()
 
-    assert digest.listed == ["Smoke Alarm Low Battery (unavailable)"]
+    assert digest.notifications == []
 
 
 async def test_other_unavailable_entities_are_not_listed(digest: Digest) -> None:
