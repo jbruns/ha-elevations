@@ -1,0 +1,128 @@
+blueprint:
+  name: Battery Digest
+  description: >-
+    Once a day, sends the Administrator a list of the batteries that are low
+    or have stopped reporting. Sends nothing when no battery needs attention.
+    Only the Administrator is ever notified (ADR 0006).
+    See infrastructure/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/infrastructure/blueprints/automation/infrastructure_battery_digest.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    time:
+      name: Time of day
+      description: When the Battery Digest is sent.
+      default: "09:00:00"
+      selector:
+        time:
+    threshold:
+      name: Low threshold
+      description: A battery level sensor below this percentage is low.
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
+    excluded_integrations:
+      name: Excluded integrations
+      description: >-
+        Integrations whose batteries are left out, by their domain, such as
+        mobile_app for phones or nut for UPSes, which have their own
+        Notifications.
+      default:
+        - mobile_app
+        - nut
+      selector:
+        text:
+          multiple: true
+    excluded_entities:
+      name: Excluded entities
+      description: Battery entities to leave out.
+      default: []
+      selector:
+        entity:
+          multiple: true
+    included_entities:
+      name: Included entities
+      description: >-
+        Binary sensors that mean "low battery" when on, even without the
+        battery device class, such as a smoke alarm bridge's low-battery sensor.
+      default: []
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+    unavailable_after:
+      name: Unavailable after
+      description: >-
+        A battery entity unavailable or unknown for longer than this has
+        stopped reporting, and is listed.
+      default:
+        hours: 24
+      selector:
+        duration:
+    administrator:
+      name: Administrator
+      description: The Administrator's phone, the only one sent the Battery Digest.
+      selector:
+        device:
+          filter:
+            integration: mobile_app
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: time
+    at: !input time
+
+variables:
+  threshold: !input threshold
+  administrator: !input administrator
+  notify: "notify.mobile_app_{{ device_attr(administrator, 'name') | slugify }}"
+  excluded_integrations: !input excluded_integrations
+  excluded_entities: !input excluded_entities
+  included_entities: !input included_entities
+  unavailable_after: !input unavailable_after
+  # Each battery needing attention, as "Name (15%)", "Name (low)" or "Name (unavailable)".
+  lines: >-
+    {%- set sensors = (states.sensor | list) + (states.binary_sensor | list) -%}
+    {%- set ns = namespace(excluded=excluded_entities, lines=[]) -%}
+    {%- for integration in excluded_integrations -%}
+      {%- set ns.excluded = ns.excluded + integration_entities(integration) -%}
+    {%- endfor -%}
+    {%- set candidates = (sensors | selectattr('attributes.device_class', 'eq', 'battery')
+                          | map(attribute='entity_id') | list) + included_entities -%}
+    {%- for entity_id in candidates | unique | reject('in', ns.excluded) -%}
+      {%- set battery = states[entity_id] -%}
+      {%- if battery is none -%}
+        {%- set line = none -%}
+      {%- elif battery.state in ['unavailable', 'unknown'] -%}
+        {#- last_changed restarts with Home Assistant, so a restart resets the count. -#}
+        {%- set gone = now() - battery.last_changed > timedelta(**unavailable_after) -%}
+        {%- set line = battery.name ~ ' (' ~ battery.state ~ ')' if gone -%}
+      {%- elif entity_id.startswith('sensor.') -%}
+        {%- set low = is_number(battery.state) and battery.state | float < threshold | float -%}
+        {%- set line = battery.name ~ ' (' ~ '%g' | format(battery.state | float(0)) ~ '%)' if low -%}
+      {%- else -%}
+        {%- set line = battery.name ~ ' (low)' if battery.state == 'on' -%}
+      {%- endif -%}
+      {%- if line -%}
+        {%- set ns.lines = ns.lines + [line] -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {{ ns.lines | sort }}
+
+conditions:
+  - condition: template
+    value_template: "{{ lines | length > 0 }}"
+
+actions:
+  - action: "{{ notify }}"
+    data:
+      title: Battery Digest
+      message: "{{ lines | join('\n') }}"
