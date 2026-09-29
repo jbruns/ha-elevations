@@ -14,4 +14,4 @@ The Frigate 0.18 add-on cannot load these values from anywhere else: `secrets.ya
 
 Edit `config.yaml`, never only the live file, so the two don't drift. If you change settings in the Frigate UI, copy the change back into the template.
 
-Zone and mask `coordinates` are fractions of the frame (0 to 1), not pixels. The config doesn't pin the detect resolution, so Frigate picks one at startup, and it has changed between restarts; pixel coordinates move when it does. `front-door/tests/test_frigate_zones.py` checks the zones against where people and cars have actually been.
+Zone and mask `coordinates` are fractions of the frame (0 to 1), not pixels. Pixel coordinates move whenever the detect resolution changes, and before it was pinned to the detect stream's 896×672, Frigate picked a different one on some restarts. `front-door/tests/test_frigate_zones.py` checks the zones against where people and cars have actually been.

@@ -80,3 +80,10 @@ def test_coordinates_are_fractions_of_the_frame(name: str, coordinates: str) -> 
 @pytest.mark.parametrize("point", PERSON_ON_PORCH)
 def test_a_person_on_the_porch_is_in_the_entry_breezeway_zone(point: tuple[float, float]) -> None:
     assert _inside(point, _polygon(_camera()["zones"]["entry_breezeway"]["coordinates"]))
+
+
+def test_detect_resolution_is_pinned_to_the_detect_stream() -> None:
+    # Unpinned, Frigate probes the stream at startup and falls back to
+    # 1280x720 when the probe fails, stretching the 4:3 detect stream.
+    detect = _camera().get("detect") or {}
+    assert (detect.get("width"), detect.get("height")) == (896, 672)
