@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.setup import async_setup_component
 from homeassistant.util import slugify
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
@@ -34,6 +35,18 @@ class Helpers:
 
     async def input_text(self, name: str, *, initial: str = "") -> str:
         return await self._create("input_text", name, initial=initial)
+
+    async def timer(self, name: str) -> str:
+        entity_id = await self._create("timer", name)
+
+        async def cancel(_: Event) -> None:
+            # A running timer otherwise leaves its timer behind the test.
+            await self.hass.services.async_call(
+                "timer", "cancel", {"entity_id": entity_id}, blocking=True
+            )
+
+        self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, cancel)
+        return entity_id
 
     async def _create(self, domain: str, name: str, **fields: Any) -> str:
         """Create the helper and return its entity ID."""

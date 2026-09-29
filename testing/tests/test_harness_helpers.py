@@ -47,3 +47,16 @@ async def test_a_date_only_helper(hass: HomeAssistant, helpers: Helpers) -> None
     day = await helpers.input_datetime("Example Day", has_time=False)
 
     assert hass.states.get(day).attributes["has_time"] is False
+
+
+async def test_a_timer_helper(hass: HomeAssistant, helpers: Helpers) -> None:
+    hold = await helpers.timer("Example Hold")
+
+    assert hold == "timer.example_hold"
+    assert hass.states.get(hold).state == "idle"
+
+    await hass.services.async_call(
+        "timer", "start", {"entity_id": hold, "duration": "00:10:00"}, blocking=True
+    )
+
+    assert hass.states.get(hold).state == "active"

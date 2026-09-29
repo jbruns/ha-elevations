@@ -1,17 +1,17 @@
 # Climate
 
-Keeps the home comfortable through its thermostat. The glossary is in [CONTEXT.md](./CONTEXT.md).
+Keeps the home comfortable through its thermostat, and says when to open or close the windows. The glossary is in [CONTEXT.md](./CONTEXT.md).
 
 This folder holds:
 
-- `blueprints/automation/`: the Comfort Policy and Door Pause blueprints.
+- `blueprints/automation/`: the Comfort Policy, Door Pause and Ventilation Recommendation blueprints.
 - `tests/`: runs the blueprints in a real Home Assistant core.
 
-Home Assistant imports these blueprints by URL, so they take every entity and every policy number as an input (ADR 0004). They depend on no template sensors: Household Home comes from `zone.home` and the forecast from `weather.get_forecasts` (ADR 0005).
+Home Assistant imports these blueprints by URL, so they take every entity and every policy number as an input (ADR 0004). They depend on no template sensors: Household Home comes from `zone.home`, the forecast from `weather.get_forecasts`, and the Ventilation Recommendation is worked out inside its automation (ADR 0005).
 
 **Numbers**: every number below is a default, and each one is an input.
 
-**Units**: every temperature input is in the thermostat's own unit. The defaults assume °F. If your thermostat uses °C, change every temperature input.
+**Units**: every temperature input is in the thermostat's or sensor's own unit. The defaults assume °F (and, for the forecast, inches and mph). If yours use °C, change every temperature input, and for metric forecasts the Ventilation Recommendation's rain and wind thresholds too.
 
 ## Comfort Policy
 
@@ -90,3 +90,45 @@ While the Door Pause helper is on, the Comfort Policy changes nothing. When the 
 - Open a door for 5 minutes. The thermostat turns off, and HVAC paused arrives naming the door.
 - Close it. After 5 minutes the thermostat returns to its mode, and the Notification changes to HVAC resumed without a sound.
 - The automation's traces show each run. A run that ended at "Nothing to change" found no Door Pause to start or end.
+
+## Ventilation Recommendation
+
+`blueprints/automation/climate_ventilation_recommendation.yaml` tells each Recipient when to open the windows, and when to close them again. It works the recommendation out itself, every 5 minutes, from the sensors and the hourly forecast.
+
+**Open the windows** is sent when all of these hold:
+
+- Household Home is on, and it is within active hours, 07:00–22:00.
+- The outdoor AQI is at most 75. Without an AQI sensor, this check is skipped.
+- None of the next 3 hourly forecast periods, starting with the current hour, has:
+  - rain: a precipitation probability above 20%, or precipitation above 0.01;
+  - muggy air: a dew point above 60;
+  - wind: gusts above 25, or, where the forecast has no gusts, a wind speed above 25;
+  - a temperature below 68 or above 78.
+- The outdoor temperature is comfortable: 68–78.
+- Outdoor air would help:
+  - indoor is 73 or more, and outdoor is at least 2 cooler; or
+  - indoor is 67 or less, and outdoor is at least 2 warmer; or
+  - indoor is between 67 and 73.
+
+**Close the windows** is sent when these no longer hold, but only after an Open: an "open" is always followed by a "close". Close replaces Open in place, silently.
+
+- **Holds**: Open is sent once it has held for 10 minutes, and Close once it has held for 5. A Timer helper times each hold, so a brief change sends nothing.
+- **Neutral**: when the indoor, outdoor or AQI reading is missing, or the forecast has fewer than 3 periods, nothing changes: no Open, no Close, and a hold under way carries on.
+- **Active hours**: nothing is sent outside them, and any hold is dropped. When they start, the recommendation is worked out at once and sent without a hold: Open if it applies, or Close if an Open is still active from the day before.
+- **Reasons**: each Notification says why, then gives the indoor and outdoor temperatures. For example, *Rain is forecast, Wind gusts are high within the next 3 hours. Indoor 76°F, outdoor 72°F.* Other reasons read *No household members are home*, *Outdoor AQI is 82*, *Outdoor temperature is below 68°F* or *Outdoor air is too warm to cool the home*. Open reads *Outdoor air can cool the home*, *can warm the home*, or *is comfortable*.
+
+### Set up
+
+1. Create the helpers, in Settings → Devices & Services → Helpers → Create Helper:
+   - One Toggle helper, on while an Open is active, so a Close follows it. Only the blueprint changes it.
+   - One Timer helper, which times each hold. Its own duration doesn't matter. Only the blueprint changes it.
+2. Check that each household member is a person with a device tracker, so `zone.home` counts who is home.
+3. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
+4. Create an automation from it. Pick the indoor and outdoor temperature sensors, a weather entity with an hourly forecast, an outdoor AQI sensor if you have one, the Recipients and the two helpers. Change any number under Forecast, Comfort or Timing to suit your home.
+5. Turn off any other automation that tells you to open or close the windows.
+
+### Check it works
+
+- On a mild, dry day, with indoor warmer than outdoor, **Open the windows** arrives within about 15 minutes, and the Toggle helper turns on.
+- Once everyone has left home, **Close the windows** replaces it without a sound about 10 minutes later.
+- The automation's traces show each run. A run that ended at "Nothing to send" found nothing to change; one at "Holding" is timing a hold; one at "Waiting for complete data" lacked a reading or forecast.

@@ -1,0 +1,453 @@
+blueprint:
+  name: Ventilation Recommendation
+  description: >-
+    Tells Recipients to open the windows when outdoor air would improve indoor
+    comfort over the next few hours, and to close them again once it no longer
+    would. An "open" is always followed by a "close", which replaces it
+    silently. Nothing is sent outside active hours. Numbers are in the
+    sensors' and weather entity's units; the defaults assume °F, inches and
+    mph. See climate/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/climate/blueprints/automation/climate_ventilation_recommendation.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    entities:
+      name: Entities
+      icon: mdi:window-open-variant
+      input:
+        indoor_temperature:
+          name: Indoor temperature sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+                device_class: temperature
+        outdoor_temperature:
+          name: Outdoor temperature sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+                device_class: temperature
+        weather:
+          name: Weather
+          description: A weather entity with an hourly forecast.
+          selector:
+            entity:
+              filter:
+                domain: weather
+        outdoor_aqi:
+          name: Outdoor AQI sensor (optional)
+          description: Leave empty to skip the air quality check.
+          default: ""
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        home_zone:
+          name: Home zone
+          description: Household Home means at least one person is in this zone.
+          default: zone.home
+          selector:
+            entity:
+              filter:
+                domain: zone
+        recipients:
+          name: Recipients
+          description: The phones told to open and close the windows.
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                integration: mobile_app
+        recommendation_active:
+          name: Recommendation-active helper
+          description: >-
+            A Toggle helper that is on once "open" has been sent, so a "close"
+            follows it. Only this blueprint changes it.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        hold_timer:
+          name: Hold timer helper
+          description: >-
+            A Timer helper that times how long a recommendation has held. Its
+            own duration doesn't matter. Only this blueprint changes it.
+          selector:
+            entity:
+              filter:
+                domain: timer
+    forecast:
+      name: Forecast
+      icon: mdi:weather-partly-rainy
+      collapsed: true
+      input:
+        lookahead:
+          name: Lookahead
+          description: Hourly forecast periods checked, starting with the current hour.
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 24
+              unit_of_measurement: periods
+              mode: box
+        rain_probability:
+          name: Rain when the precipitation probability is above
+          default: 20
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
+              mode: box
+        rain_amount:
+          name: Rain when the precipitation is above
+          default: 0.01
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 0.01
+              mode: box
+        muggy_dew_point:
+          name: Muggy when the dew point is above
+          default: 60
+          selector: &temperature
+            number:
+              min: -50
+              max: 130
+              step: 0.5
+              unit_of_measurement: °
+              mode: box
+        windy_gust:
+          name: Windy when gusts are above
+          description: Where the forecast has no gusts, its wind speed counts instead.
+          default: 25
+          selector:
+            number:
+              min: 0
+              max: 200
+              mode: box
+    comfort:
+      name: Comfort
+      icon: mdi:home-thermometer
+      collapsed: true
+      input:
+        comfortable_low:
+          name: Comfortable outdoor temperature from
+          description: The current outdoor temperature, and every forecast period's, must be in this range.
+          default: 68
+          selector: *temperature
+        comfortable_high:
+          name: Comfortable outdoor temperature to
+          default: 78
+          selector: *temperature
+        warm_indoor:
+          name: Indoor is warm at or above
+          description: When indoor is warm, outdoor air helps if it is cooler by at least the margin.
+          default: 73
+          selector: *temperature
+        cool_indoor:
+          name: Indoor is cool at or below
+          description: >-
+            When indoor is cool, outdoor air helps if it is warmer by at least
+            the margin. Between cool and warm, comfortable outdoor air always
+            helps.
+          default: 67
+          selector: *temperature
+        margin:
+          name: Margin
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 0.5
+              unit_of_measurement: °
+              mode: box
+        max_aqi:
+          name: Maximum AQI
+          default: 75
+          selector:
+            number:
+              min: 0
+              max: 500
+              mode: box
+    timing:
+      name: Timing
+      icon: mdi:clock-outline
+      collapsed: true
+      input:
+        active_start:
+          name: Active hours start
+          description: The recommendation is checked afresh, and sent at once, at this time.
+          default: "07:00:00"
+          selector:
+            time:
+        active_end:
+          name: Active hours end
+          description: Nothing is sent from this time until active hours start.
+          default: "22:00:00"
+          selector:
+            time:
+        open_for:
+          name: Open held for
+          description: '"Open" is sent once it has held this long.'
+          default:
+            minutes: 10
+          selector:
+            duration:
+        close_for:
+          name: Close held for
+          description: '"Close" is sent once it has held this long.'
+          default:
+            minutes: 5
+          selector:
+            duration:
+
+# One run at a time, so each run sees the helpers the last one left.
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: time_pattern
+    minutes: "/5"
+    id: check
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input hold_timer
+    id: held
+  - trigger: time
+    at: !input active_start
+    id: active_hours_start
+
+variables:
+  indoor_entity: !input indoor_temperature
+  outdoor_entity: !input outdoor_temperature
+  weather_entity: !input weather
+  aqi_entity: !input outdoor_aqi
+  home_zone_entity: !input home_zone
+  active_entity: !input recommendation_active
+  timer_entity: !input hold_timer
+  recipients: !input recipients
+  lookahead: !input lookahead
+  rain_probability: !input rain_probability
+  rain_amount: !input rain_amount
+  muggy_dew_point: !input muggy_dew_point
+  windy_gust: !input windy_gust
+  comfortable_low: !input comfortable_low
+  comfortable_high: !input comfortable_high
+  warm_indoor: !input warm_indoor
+  cool_indoor: !input cool_indoor
+  margin: !input margin
+  max_aqi: !input max_aqi
+  # Open and Close are one Notification, updated in place.
+  tag: "ventilation-{{ active_entity }}"
+
+actions:
+  # Outside active hours nothing is sent, and no hold carries over.
+  - if:
+      - condition: not
+        conditions:
+          - condition: time
+            after: !input active_start
+            before: !input active_end
+    then:
+      - if: "{{ is_state(timer_entity, 'active') }}"
+        then:
+          - action: timer.cancel
+            target:
+              entity_id: !input hold_timer
+      - stop: Outside active hours
+  - action: weather.get_forecasts
+    target:
+      entity_id: !input weather
+    data:
+      type: hourly
+    response_variable: forecasts
+    continue_on_error: true
+  - variables:
+      indoor: "{{ states(indoor_entity) | float(none) }}"
+      outdoor: "{{ states(outdoor_entity) | float(none) }}"
+      aqi: "{{ states(aqi_entity) | float(none) if aqi_entity else none }}"
+      unit: "{{ state_attr(outdoor_entity, 'unit_of_measurement') or '°' }}"
+      indoor_unit: "{{ state_attr(indoor_entity, 'unit_of_measurement') or '°' }}"
+      # The lookahead's periods, from the current hour on.
+      periods: >-
+        {%- set response = forecasts if forecasts is defined and forecasts is mapping else {} -%}
+        {%- set hours = (response.get(weather_entity) or {}).get('forecast') or [] -%}
+        {%- set ns = namespace(periods=[]) -%}
+        {%- for hour in hours if hour is mapping -%}
+          {%- set starts = as_datetime(hour.get('datetime')) -%}
+          {%- if starts is not none and as_local(starts) + timedelta(hours=1) > now() -%}
+            {%- set ns.periods = ns.periods + [hour] -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.periods[:lookahead | int] }}
+  - variables:
+      complete: >-
+        {{ indoor is number and outdoor is number
+           and (not aqi_entity or aqi is number)
+           and periods | length >= lookahead | int }}
+      # Why Open will not apply within the lookahead.
+      forecast_reasons: >-
+        {%- set ns = namespace(rain=false, muggy=false, windy=false, cold=false, hot=false) -%}
+        {%- for p in periods -%}
+          {%- set probability = p.get('precipitation_probability') -%}
+          {%- set amount = p.get('precipitation') -%}
+          {%- if (probability is number and probability > rain_probability)
+                 or (amount is number and amount > rain_amount) -%}
+            {%- set ns.rain = true -%}
+          {%- endif -%}
+          {%- set dew_point = p.get('dew_point') -%}
+          {%- if dew_point is number and dew_point > muggy_dew_point -%}
+            {%- set ns.muggy = true -%}
+          {%- endif -%}
+          {%- set gust = p.get('wind_gust_speed') -%}
+          {%- set wind = gust if gust is number else p.get('wind_speed') -%}
+          {%- if wind is number and wind > windy_gust -%}
+            {%- set ns.windy = true -%}
+          {%- endif -%}
+          {%- set temperature = p.get('temperature') -%}
+          {%- if temperature is number and temperature < comfortable_low -%}
+            {%- set ns.cold = true -%}
+          {%- endif -%}
+          {%- if temperature is number and temperature > comfortable_high -%}
+            {%- set ns.hot = true -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ (['Rain is forecast'] if ns.rain else [])
+           + (['Muggy air is forecast'] if ns.muggy else [])
+           + (['Wind gusts are high'] if ns.windy else [])
+           + (['Outdoor temperature will fall below ' ~ '%g' | format(comfortable_low) ~ unit] if ns.cold else [])
+           + (['Outdoor temperature will rise above ' ~ '%g' | format(comfortable_high) ~ unit] if ns.hot else []) }}
+  - variables:
+      # Why Open does not apply now, in the order they are given.
+      now_reasons: >-
+        {%- set r = [] -%}
+        {%- if complete -%}
+          {%- if states(home_zone_entity) | int(0) == 0 -%}
+            {%- set r = r + ['No household members are home'] -%}
+          {%- endif -%}
+          {%- if aqi_entity and aqi > max_aqi -%}
+            {%- set r = r + ['Outdoor AQI is ' ~ '%g' | format(aqi)] -%}
+          {%- endif -%}
+          {#- The forecast's own reason says it, if it also falls outside. -#}
+          {%- set later = forecast_reasons | join(' ') -%}
+          {%- if outdoor < comfortable_low and 'fall below' not in later -%}
+            {%- set r = r + ['Outdoor temperature is below ' ~ '%g' | format(comfortable_low) ~ unit] -%}
+          {%- elif outdoor > comfortable_high and 'rise above' not in later -%}
+            {%- set r = r + ['Outdoor temperature is above ' ~ '%g' | format(comfortable_high) ~ unit] -%}
+          {%- endif -%}
+          {%- if indoor >= warm_indoor and outdoor > indoor - margin -%}
+            {%- set r = r + ['Outdoor air is too warm to cool the home'] -%}
+          {%- elif indoor <= cool_indoor and outdoor < indoor + margin -%}
+            {%- set r = r + ['Outdoor air is too cool to warm the home'] -%}
+          {%- endif -%}
+        {%- endif -%}
+        {{ r }}
+  - variables:
+      recommendation: >-
+        {%- if not complete -%}
+          neutral
+        {%- elif now_reasons or forecast_reasons -%}
+          close
+        {%- else -%}
+          open
+        {%- endif -%}
+      active: "{{ is_state(active_entity, 'on') }}"
+      # The Notification this recommendation would send: Open only if not
+      # already active, and Close only after an Open.
+      send: >-
+        {%- if recommendation == 'open' and not active -%}
+          open
+        {%- elif recommendation == 'close' and active -%}
+          close
+        {%- else -%}
+          none
+        {%- endif -%}
+  # Incomplete data changes nothing, not even a hold under way.
+  - if: "{{ recommendation == 'neutral' }}"
+    then:
+      - stop: Waiting for complete data
+  # Nothing to send, so no hold either.
+  - if: "{{ send == 'none' }}"
+    then:
+      - if: "{{ is_state(timer_entity, 'active') }}"
+        then:
+          - action: timer.cancel
+            target:
+              entity_id: !input hold_timer
+      - stop: Nothing to send
+  # A check starts the hold; it is sent once the hold ends, or at once at the
+  # start of active hours.
+  - if: "{{ trigger.id == 'check' }}"
+    then:
+      - if: "{{ is_state(timer_entity, 'idle') }}"
+        then:
+          - if: "{{ send == 'open' }}"
+            then:
+              - action: timer.start
+                target:
+                  entity_id: !input hold_timer
+                data:
+                  duration: !input open_for
+            else:
+              - action: timer.start
+                target:
+                  entity_id: !input hold_timer
+                data:
+                  duration: !input close_for
+      - stop: Holding
+  - if: "{{ is_state(timer_entity, 'active') }}"
+    then:
+      - action: timer.cancel
+        target:
+          entity_id: !input hold_timer
+  - variables:
+      reason: >-
+        {%- if send == 'open' -%}
+          {%- if indoor >= warm_indoor -%}
+            Outdoor air can cool the home
+          {%- elif indoor <= cool_indoor -%}
+            Outdoor air can warm the home
+          {%- else -%}
+            Outdoor air is comfortable
+          {%- endif -%}
+        {%- else -%}
+          {%- set hours = lookahead | int -%}
+          {%- set later = [forecast_reasons | join(', ') ~ ' within the next '
+                ~ (hours ~ ' hours' if hours != 1 else 'hour')] if forecast_reasons else [] -%}
+          {{ (now_reasons + later) | join(', ') }}
+        {%- endif -%}
+      title: "{{ 'Open the windows' if send == 'open' else 'Close the windows' }}"
+      message: >-
+        {{ reason }}. Indoor {{ '%g' | format(indoor) }}{{ indoor_unit }}, outdoor {{ '%g' | format(outdoor) }}{{ unit }}.
+      push: >-
+        {{ {'sound': 'default'} if send == 'open'
+           else {'sound': 'none', 'interruption-level': 'passive'} }}
+  - if: "{{ send == 'open' }}"
+    then:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: !input recommendation_active
+    else:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: !input recommendation_active
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+            data:
+              tag: "{{ tag }}"
+              push: "{{ push }}"

@@ -37,7 +37,7 @@ uv run pytest
 | `weather` | `weather.example`, whose hourly forecast a test sets hour by hour with `Hour(...)` (`testing/weather.py`) |
 | `household` | Household Home, from the persons in `zone.home`: `await household.set_home(n)` (`testing/household.py`) |
 | `thermostat` | `climate.example`, recording `set_temperature` and `set_hvac_mode` calls; `set(available=False)` makes it unavailable (`testing/thermostat.py`) |
-| `helpers` | `input_boolean`, `input_select`, `input_datetime` and `input_text` created by name (`testing/helpers.py`) |
+| `helpers` | `input_boolean`, `input_select`, `input_datetime`, `input_text` and `timer` created by name (`testing/helpers.py`) |
 | `sensors` | any sensor's state and attributes, and battery sensors from a named integration (`testing/sensors.py`) |
 | `clock` | frozen time to move to or advance, firing `for:`, time and time pattern triggers; `advance(..., settle=False)` while a run waits in a `wait_template` or `delay` (`testing/clock.py`) |
 
