@@ -1,0 +1,187 @@
+blueprint:
+  name: Failure Notifications
+  description: >-
+    Tells the Administrator when a Monitored System fails: its entities stay
+    unavailable, out of their healthy states, or past a limit for longer than
+    a grace period. When it recovers, the Recovery Notification silently
+    replaces the Failure's. Create one automation per Monitored System.
+    Only the Administrator is ever notified (ADR 0006).
+    See infrastructure/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/infrastructure/blueprints/automation/infrastructure_failure_notifications.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    system:
+      name: Monitored System
+      description: The name used in each Notification, such as "Zigbee network".
+      selector:
+        text:
+    entities:
+      name: Entities
+      description: The entities whose state shows whether the Monitored System is healthy.
+      selector:
+        entity:
+          multiple: true
+    test:
+      name: Failed test
+      description: What makes an entity failing.
+      default: unavailable
+      selector:
+        select:
+          options:
+            - label: Unavailable or unknown
+              value: unavailable
+            - label: Not in the expected states
+              value: not_expected
+            - label: Numeric value below the limit
+              value: below
+            - label: Numeric value above the limit
+              value: above
+    expected_states:
+      name: Expected states
+      description: >-
+        For "Not in the expected states": the healthy states, such as on,
+        ready or OL. Any other state, including unavailable, is failing.
+      default: []
+      selector:
+        text:
+          multiple: true
+    limit:
+      name: Limit
+      description: >-
+        For the numeric tests, in the entity's own unit. An entity without a
+        numeric state is not failing a numeric test.
+      default: 0
+      selector:
+        number:
+          min: -1000000
+          max: 1000000
+          step: any
+          mode: box
+    require:
+      name: Any or all
+      description: Whether one failing entity makes a Failure, or only all of them together.
+      default: any
+      selector:
+        select:
+          options:
+            - label: Any entity failing
+              value: any
+            - label: All entities failing
+              value: all
+    grace:
+      name: Grace period
+      description: A Failure is notified once the test has held this long.
+      default:
+        minutes: 5
+      selector:
+        duration:
+    administrator:
+      name: Administrator
+      description: The Administrator's phone, the only one told about Failures and Recoveries.
+      selector:
+        device:
+          filter:
+            integration: mobile_app
+
+# A run lasts from a Failure to its Recovery, so later triggers meanwhile are dropped.
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  entities: !input entities
+  test: !input test
+  expected: !input expected_states
+  limit: !input limit
+  require: !input require
+  # What the shared check below gives: failure (true while the test holds),
+  # recovery (true once the Failure is over) or failing (the failing entities).
+  output: failure
+
+triggers:
+  # A template trigger fires only when the test starts to hold, never for a
+  # condition already true when Home Assistant starts.
+  - trigger: template
+    value_template: &check >-
+      {%- set ns = namespace(failing=[]) -%}
+      {%- for entity_id in entities -%}
+        {%- set state = states(entity_id) -%}
+        {%- if test == 'unavailable' -%}
+          {%- set bad = state in ['unavailable', 'unknown'] -%}
+        {%- elif test == 'not_expected' -%}
+          {%- set bad = state not in expected -%}
+        {%- elif not is_number(state) -%}
+          {#- A numeric test can't fail without a number, nor recover without one. -#}
+          {%- set bad = output == 'recovery' -%}
+        {%- elif test == 'below' -%}
+          {%- set bad = state | float < limit | float -%}
+        {%- else -%}
+          {%- set bad = state | float > limit | float -%}
+        {%- endif -%}
+        {%- if bad -%}
+          {%- set ns.failing = ns.failing + [entity_id] -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- set holds = ns.failing | length > 0
+                      and (require != 'all' or ns.failing | length == entities | length) -%}
+      {%- if output == 'failure' -%}
+        {{ holds }}
+      {%- elif output == 'recovery' -%}
+        {{ not holds }}
+      {%- else -%}
+        {{ ns.failing }}
+      {%- endif -%}
+    for: !input grace
+
+variables:
+  system: !input system
+  administrator: !input administrator
+  notify: "notify.mobile_app_{{ device_attr(administrator, 'name') | slugify }}"
+  # Failure and Recovery are one Notification, updated in place.
+  tag: "infrastructure-failure-{{ this.entity_id }}"
+
+actions:
+  - variables:
+      output: failing
+  - variables:
+      failing: *check
+      shown_limit: "{{ '%g' | format(limit | float) }}"
+      message: >-
+        {%- set sentences = namespace(items=[]) -%}
+        {%- for entity_id in failing -%}
+          {%- set name = state_attr(entity_id, 'friendly_name') or entity_id -%}
+          {%- set state = states(entity_id) -%}
+          {%- set unit = state_attr(entity_id, 'unit_of_measurement') -%}
+          {%- set suffix = ' ' ~ unit if unit else '' -%}
+          {%- if test == 'unavailable' -%}
+            {%- set sentence = name ~ ' is ' ~ state ~ '.' -%}
+          {%- elif test == 'not_expected' -%}
+            {%- set sentence = name ~ ' is ' ~ state ~ ', not ' ~ expected | join(' or ') ~ '.' -%}
+          {%- else -%}
+            {%- set sentence = name ~ ' is ' ~ state ~ suffix ~ ', '
+                               ~ test ~ ' ' ~ shown_limit ~ suffix ~ '.' -%}
+          {%- endif -%}
+          {%- set sentences.items = sentences.items + [sentence] -%}
+        {%- endfor -%}
+        {{ sentences.items | join(' ') }}
+  - action: "{{ notify }}"
+    data:
+      title: "{{ system }} failed"
+      message: "{{ message }}"
+      data:
+        tag: "{{ tag }}"
+        push:
+          sound: default
+  - variables:
+      output: recovery
+  - wait_template: *check
+  - action: "{{ notify }}"
+    data:
+      title: "{{ system }} recovered"
+      message: "{{ system }} is healthy again."
+      data:
+        tag: "{{ tag }}"
+        push:
+          sound: none
+          interruption-level: passive
