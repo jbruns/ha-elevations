@@ -96,7 +96,7 @@ cameras:
         record: preset-record-generic-audio-aac
     zones:
       driveway:
-        coordinates: 371,143,370,340,209,327,207,148
+        coordinates: 134,336,573,336,573,403,358,444,134,436
         objects:
           - car
           - person
