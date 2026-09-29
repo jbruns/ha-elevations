@@ -4,7 +4,7 @@ Keeps the home comfortable through its thermostat. The glossary is in [CONTEXT.m
 
 This folder holds:
 
-- `blueprints/automation/`: the Comfort Policy blueprint.
+- `blueprints/automation/`: the Comfort Policy and Door Pause blueprints.
 - `tests/`: runs the blueprints in a real Home Assistant core.
 
 Home Assistant imports these blueprints by URL, so they take every entity and every policy number as an input (ADR 0004). They depend on no template sensors: Household Home comes from `zone.home` and the forecast from `weather.get_forecasts` (ADR 0005).
@@ -50,7 +50,7 @@ The Band replaces the previous automation's separate range table: now only the c
 1. Create the helpers, in Settings → Devices & Services → Helpers → Create Helper:
    - Two Date and/or time helpers, **time only**: Sleep start and Wake time.
    - One Dropdown helper for the humidity, with exactly the options `normal`, `humid` and `dry`. Only the policy changes it.
-   - One Toggle helper for the Door Pause, if you don't have one yet. The Door Pause blueprint turns it on and off; share the same helper.
+   - One Toggle helper for the Door Pause, if you don't have one yet. The [Door Pause](#door-pause) blueprint turns it on and off; share the same helper.
 2. Check that each household member is a person with a device tracker, so `zone.home` counts who is home.
 3. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
 4. Create an automation from it. Pick the thermostat, the indoor humidity and outdoor temperature sensors, a weather entity with an hourly forecast, and the helpers. Change any number under Comfort Targets, Humidity, Setback or Comfort Band to suit your home.
@@ -62,3 +62,31 @@ The Band replaces the previous automation's separate range table: now only the c
 - Set the thermostat a little warmer by hand. It stays. Set it far outside the Band; within moments it returns to the Band's edge.
 - Leave home. After 30 minutes the Setback applies, and it lifts when you return.
 - The automation's traces show each run. A run that stopped at a condition changed nothing, for example because the thermostat was off or a Door Pause was on.
+
+## Door Pause
+
+`blueprints/automation/climate_door_pause.yaml` turns the thermostat off while an Exterior Door is left open, then returns it to its earlier mode.
+
+- **Start**: once any Exterior Door has been open for 5 minutes, and the thermostat is in `heat`, `cool` or `heat_cool`, the Door Pause starts. The blueprint saves the thermostat's mode, turns the Door Pause helper on, and turns the thermostat off. Each Recipient gets **HVAC paused**, naming the open doors.
+- **End**: once every Exterior Door has been closed for 5 minutes and the thermostat is available, the blueprint restores the saved mode and turns the Door Pause helper off. **HVAC resumed** replaces HVAC paused in place, silently, and names the restored mode. If someone turned the thermostat on during the Door Pause, their mode stays.
+- More doors opening during a Door Pause change nothing.
+- A door sensor that reads anything but *on*, such as `unavailable`, counts as closed, so a dead sensor never holds the thermostat off.
+- Turning the thermostat on while a door has been open for 5 minutes starts a Door Pause straight away.
+- A restart doesn't lose a Door Pause: the saved mode and the helper survive it. Home Assistant forgets how long each door has been open or closed, so after a restart the blueprint waits the full duration again.
+
+While the Door Pause helper is on, the Comfort Policy changes nothing. When the Door Pause ends it applies the Comfort Target, if someone is home.
+
+### Set up
+
+1. Create the helpers, in Settings → Devices & Services → Helpers → Create Helper:
+   - One Toggle helper for the Door Pause. If you use the Comfort Policy, use the same helper for both.
+   - One Dropdown helper for the saved mode, with exactly the options `heat_cool`, `heat`, `cool` and `off`. Only the blueprint changes it.
+2. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
+3. Create an automation from it. Pick every Exterior Door's sensor, the thermostat, the two helpers and the Recipients. Change the open and closed durations to suit your home.
+4. Turn off any other automation that turns the thermostat off for an open door.
+
+### Check it works
+
+- Open a door for 5 minutes. The thermostat turns off, and HVAC paused arrives naming the door.
+- Close it. After 5 minutes the thermostat returns to its mode, and the Notification changes to HVAC resumed without a sound.
+- The automation's traces show each run. A run that ended at "Nothing to change" found no Door Pause to start or end.

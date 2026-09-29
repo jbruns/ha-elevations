@@ -68,3 +68,15 @@ async def test_turn_off_and_turn_on_are_recorded_as_themselves(
     assert thermostat.calls == [("turn_off", {}), ("turn_on", {})]
     # Like most thermostats, turning on resumes the mode it was turned off from.
     assert hass.states.get(thermostat.entity_id).state == "cool"
+
+
+async def test_a_test_makes_the_thermostat_unavailable_and_back(
+    hass: HomeAssistant, thermostat: Thermostat
+) -> None:
+    await thermostat.set(hvac_mode="heat", temperature=20)
+
+    await thermostat.set(available=False)
+    assert hass.states.get(thermostat.entity_id).state == "unavailable"
+    await thermostat.set(available=True)
+
+    assert hass.states.get(thermostat.entity_id).state == "heat"

@@ -1,0 +1,229 @@
+blueprint:
+  name: Door Pause
+  description: >-
+    Turns the thermostat off while an Exterior Door has been open too long,
+    and returns it to its earlier mode once every Exterior Door has been
+    closed for a while. The Door Pause helper is on for the whole Door Pause,
+    so the Comfort Policy makes no changes meanwhile. Recipients are told
+    when it starts, and that Notification is replaced silently when it ends.
+    See climate/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/climate/blueprints/automation/climate_door_pause.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    exterior_doors:
+      name: Exterior Doors
+      description: The doors and sliders to the outdoors. Each sensor reads on while open.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: binary_sensor
+    thermostat:
+      name: Thermostat
+      selector:
+        entity:
+          filter:
+            domain: climate
+    door_pause:
+      name: Door Pause helper
+      description: >-
+        A Toggle helper that is on during a Door Pause, shared with the
+        Comfort Policy blueprint. Only this blueprint changes it.
+      selector:
+        entity:
+          filter:
+            domain: input_boolean
+    saved_mode:
+      name: Saved mode helper
+      description: >-
+        A Dropdown helper with the options heat_cool, heat, cool and off. It
+        keeps the thermostat's mode during a Door Pause, across restarts.
+      selector:
+        entity:
+          filter:
+            domain: input_select
+    open_for:
+      name: Open duration
+      description: A Door Pause starts once any Exterior Door has been open this long.
+      default:
+        minutes: 5
+      selector:
+        duration:
+    closed_for:
+      name: Closed duration
+      description: A Door Pause ends once every Exterior Door has been closed this long.
+      default:
+        minutes: 5
+      selector:
+        duration:
+    recipients:
+      name: Recipients
+      description: The phones told when a Door Pause starts and ends.
+      default: []
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: mobile_app
+
+# One run at a time, so a run always sees the Door Pause the last one left.
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input exterior_doors
+    to: "on"
+    for: !input open_for
+  # Anything but open counts as closed, so a sensor that drops out never
+  # holds the thermostat off. Each change restarts the duration.
+  - trigger: state
+    entity_id: !input exterior_doors
+    not_to: "on"
+    for: !input closed_for
+  # A mode change, or the thermostat becoming available; not an attribute change.
+  - trigger: state
+    entity_id: !input thermostat
+    to: ~
+  - trigger: homeassistant
+    event: start
+    id: start
+
+variables:
+  doors: !input exterior_doors
+  thermostat_entity: !input thermostat
+  door_pause_entity: !input door_pause
+  saved_mode_entity: !input saved_mode
+  recipients: !input recipients
+  open_for: !input open_for
+  closed_for: !input closed_for
+  active_modes: ["heat", "cool", "heat_cool"]
+  mode_names:
+    heat: Heat
+    cool: Cool
+    heat_cool: Heat/Cool
+  # Each duration input as seconds, whether a mapping or "HH:MM:SS".
+  open_seconds: >-
+    {%- set d = open_for -%}
+    {%- if d is mapping -%}
+      {{ d.get('days', 0) * 86400 + d.get('hours', 0) * 3600
+         + d.get('minutes', 0) * 60 + d.get('seconds', 0) }}
+    {%- else -%}
+      {{ as_timedelta(d | string).total_seconds() }}
+    {%- endif -%}
+  closed_seconds: >-
+    {%- set d = closed_for -%}
+    {%- if d is mapping -%}
+      {{ d.get('days', 0) * 86400 + d.get('hours', 0) * 3600
+         + d.get('minutes', 0) * 60 + d.get('seconds', 0) }}
+    {%- else -%}
+      {{ as_timedelta(d | string).total_seconds() }}
+    {%- endif -%}
+  # Set once a wait after a restart has lasted the whole duration.
+  duration_served: false
+  # Paused and Resumed are one Notification, updated in place.
+  tag: "door-pause-{{ thermostat_entity }}"
+
+actions:
+  # A restart forgets how long each door has been open or closed, so wait the
+  # duration from now, unless a door opens during a Door Pause, or every
+  # door closes outside one.
+  - if: >-
+      {{ trigger.id == 'start'
+         and is_state(door_pause_entity, 'on') != (doors | select('is_state', 'on') | list | length > 0) }}
+    then:
+      - variables:
+          waiting_to_end: "{{ is_state(door_pause_entity, 'on') }}"
+      - wait_template: >-
+          {{ (doors | select('is_state', 'on') | list | length > 0) == waiting_to_end }}
+        timeout:
+          seconds: "{{ closed_seconds if waiting_to_end else open_seconds }}"
+      - variables:
+          duration_served: "{{ wait.remaining == 0 }}"
+  - variables:
+      mode: "{{ states(thermostat_entity) }}"
+      paused: "{{ is_state(door_pause_entity, 'on') }}"
+      open_doors: "{{ doors | select('is_state', 'on') | list }}"
+      # Durations are measured from each door's last change, with a second's
+      # slack because a for: trigger fires on the dot.
+      start_pause: >-
+        {{ not paused and mode in active_modes and open_doors | length > 0
+           and (duration_served
+                or expand(open_doors)
+                   | selectattr('last_changed', 'le', now() - timedelta(seconds=open_seconds - 1))
+                   | list | length > 0) }}
+      end_pause: >-
+        {{ paused and mode not in ['unavailable', 'unknown'] and open_doors | length == 0
+           and (duration_served
+                or expand(doors)
+                   | selectattr('last_changed', 'gt', now() - timedelta(seconds=closed_seconds - 1))
+                   | list | length == 0) }}
+  - choose:
+      - conditions: "{{ start_pause }}"
+        sequence:
+          - action: input_select.select_option
+            target:
+              entity_id: !input saved_mode
+            data:
+              option: "{{ mode }}"
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input door_pause
+          - action: climate.set_hvac_mode
+            target:
+              entity_id: !input thermostat
+            data:
+              hvac_mode: "off"
+          - variables:
+              names: "{{ open_doors | map('state_attr', 'friendly_name') | list }}"
+              title: HVAC paused
+              message: >-
+                {{ names[:-1] | join(', ') ~ ' and ' ~ names[-1] if names | length > 1 else names[0] }}
+                {{- ' are' if names | length > 1 else ' is' }} open, so the thermostat is off.
+              push:
+                sound: default
+      - conditions: "{{ end_pause }}"
+        sequence:
+          - variables:
+              saved: "{{ states(saved_mode_entity) }}"
+              # Someone may have turned the thermostat on during the Door Pause;
+              # their mode stays.
+              restore: "{{ mode == 'off' and saved in active_modes }}"
+              resumed_mode: "{{ saved if restore else mode }}"
+          - if: "{{ restore }}"
+            then:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: !input thermostat
+                data:
+                  hvac_mode: "{{ saved }}"
+          # After the mode, so the Comfort Policy finds the thermostat on.
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input door_pause
+          - variables:
+              title: HVAC resumed
+              message: >-
+                {%- if resumed_mode == 'off' -%}
+                  Every door is closed; the thermostat stays off.
+                {%- else -%}
+                  Every door is closed, so the thermostat is back on {{ mode_names.get(resumed_mode, resumed_mode) }}.
+                {%- endif -%}
+              push:
+                sound: none
+                interruption-level: passive
+    default:
+      - stop: Nothing to change
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+            data:
+              tag: "{{ tag }}"
+              push: "{{ push }}"

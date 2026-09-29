@@ -71,3 +71,30 @@ async def test_advancing_in_steps_fires_a_time_pattern_each_time(
     await clock.advance(timedelta(hours=1), step=timedelta(minutes=1))
 
     assert len(recipient.notifications) == 4
+
+
+async def test_advancing_without_settling_reaches_a_waiting_run_timeout(
+    hass: HomeAssistant, clock: Clock, recipient: Phone
+) -> None:
+    """A run waiting in a wait_template or delay never settles, so the clock
+    moves on without waiting for it."""
+    await async_setup_automations(
+        hass,
+        [
+            {
+                "alias": "Notify after a wait",
+                "triggers": [{"trigger": "event", "event_type": "example_start"}],
+                "actions": [
+                    {"wait_template": "{{ false }}", "timeout": {"minutes": 5}},
+                    {"action": recipient.notify, "data": {"message": "waited"}},
+                ],
+            }
+        ],
+    )
+    hass.bus.async_fire("example_start")
+
+    await clock.advance(timedelta(minutes=4), step=timedelta(minutes=1), settle=False)
+    assert recipient.notifications == []
+    await clock.advance(timedelta(minutes=1), settle=False)
+
+    assert [n["message"] for n in recipient.notifications] == ["waited"]

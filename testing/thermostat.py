@@ -56,8 +56,12 @@ class Thermostat(ClimateEntity):
         target_temp_low: float | None = None,
         target_temp_high: float | None = None,
         current_temperature: float | None = None,
+        available: bool | None = None,
     ) -> None:
-        """Set the thermostat's state without recording a call, as if changed by hand."""
+        """Set the thermostat's state without recording a call, as if changed by hand.
+        available=False makes it unavailable, as when its integration loses touch."""
+        if available is not None:
+            self._attr_available = available
         if current_temperature is not None:
             self._attr_current_temperature = current_temperature
         self._apply(
