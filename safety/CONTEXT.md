@@ -11,3 +11,7 @@ _Avoid_: Alert, alarm, emergency
 **Limit Breach**:
 A reading, such as freezer temperature or outdoor air quality, stays past a safe limit for a set duration.
 _Avoid_: Threshold alert, alert, excursion
+
+**Cleared**:
+The end of a Hazard or Limit Breach, when the sensor reports safe again. A sensor that stops reporting has not cleared. Its Notification silently replaces the Hazard's or Limit Breach's.
+_Avoid_: Recovered, resolved, all clear

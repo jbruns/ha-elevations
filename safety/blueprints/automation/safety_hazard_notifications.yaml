@@ -1,0 +1,126 @@
+blueprint:
+  name: Hazard Notifications
+  description: >-
+    Warns every Recipient about a Hazard: a sensor reporting a dangerous
+    condition, such as a water leak, smoke or carbon monoxide, or one that has
+    lasted too long, such as a freezer door left open. When the Hazard clears,
+    the cleared Notification silently replaces the Hazard's. Create one
+    automation per Hazard.
+    See safety/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/safety/blueprints/automation/safety_hazard_notifications.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    sensor:
+      name: Sensor
+      description: The binary sensor that reports the Hazard.
+      selector:
+        entity:
+          filter:
+            domain: binary_sensor
+    hazard_state:
+      name: Hazard when the sensor is
+      description: >-
+        Usually on. Some integrations report a contact the other way round,
+        such as a freezer door sensor that is on when the door is closed: for
+        those, choose off.
+      default: "on"
+      selector:
+        select:
+          options:
+            - label: "On"
+              value: "on"
+            - label: "Off"
+              value: "off"
+    held_for:
+      name: Held for
+      description: >-
+        A Hazard is notified once the sensor has been in the Hazard state this
+        long. Leave at 0 to notify immediately, as for a leak or smoke; use a
+        few minutes for a door left open.
+      default:
+        hours: 0
+        minutes: 0
+        seconds: 0
+      selector:
+        duration:
+    critical:
+      name: Critical
+      description: >-
+        Warn with an iOS critical sound, which plays at full volume even in
+        silent mode and breaks through Focus modes. Turn off for a Hazard that
+        can wait, such as a freezer door left open.
+      default: true
+      selector:
+        boolean:
+    recipients:
+      name: Recipients
+      description: The phones warned about the Hazard.
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: mobile_app
+    title:
+      name: Title
+      description: The Notification's title, such as "Water leak".
+      selector:
+        text:
+    message:
+      name: Message
+      description: The Notification's message, such as "Leak at the kitchen sink".
+      selector:
+        text:
+
+# A run lasts from a Hazard until it clears. A new Hazard meanwhile, such as the
+# sensor coming back from unavailable, starts over and warns again, so none is
+# ever dropped, even one arriving while the cleared Notification is being sent.
+mode: restart
+
+triggers:
+  - trigger: state
+    entity_id: !input sensor
+    to: !input hazard_state
+    for: !input held_for
+
+variables:
+  sensor: !input sensor
+  hazard_state: !input hazard_state
+  safe_state: "{{ 'off' if hazard_state == 'on' else 'on' }}"
+  recipients: !input recipients
+  title: !input title
+  message: !input message
+  critical: !input critical
+  # The Hazard and its clearing are one Notification, updated in place.
+  tag: "safety-hazard-{{ this.entity_id }}"
+
+actions:
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+            data:
+              tag: "{{ tag }}"
+              push: >-
+                {{ {'sound': {'name': 'default', 'critical': 1, 'volume': 1.0},
+                    'interruption-level': 'critical'} if critical
+                   else {'sound': 'default'} }}
+  # Only the sensor reporting safe again clears the Hazard: unavailable or
+  # unknown says nothing about whether it is over.
+  - wait_template: "{{ is_state(sensor, safe_state) }}"
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }} cleared"
+            message: "{{ message }}"
+            data:
+              tag: "{{ tag }}"
+              push:
+                sound: none
+                interruption-level: passive
