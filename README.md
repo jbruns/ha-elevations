@@ -9,7 +9,7 @@ The repo is organised by context (ADR 0007). Each context's folder holds its glo
 - [Front Door](./front-door/README.md): Notifications about activity at the front door.
 - [Climate](./climate/README.md): comfort, and when to open or close the windows.
 - [Infrastructure](./infrastructure/README.md): tells the Administrator when the home's systems fail or recover, and which batteries need replacing.
-- [Safety](./safety/README.md): warns the household about hazards in the home.
+- [Safety](./safety/README.md): warns the household about hazards in the home, and readings past safe limits.
 
 Architecture decisions are in [docs/adr/](./docs/adr/).
 

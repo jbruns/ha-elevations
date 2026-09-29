@@ -1,0 +1,152 @@
+blueprint:
+  name: Limit Breach Notifications
+  description: >-
+    Warns every Recipient about a Limit Breach: a reading, such as freezer
+    temperature or outdoor air quality, staying past a safe limit for a set
+    duration. When the reading comes back within the limit, the cleared
+    Notification silently replaces the Breach's. Create one automation per
+    reading.
+    See safety/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/safety/blueprints/automation/safety_limit_breach_notifications.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    sensor:
+      name: Sensor
+      description: The sensor whose numeric reading is watched.
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    direction:
+      name: Breach when the reading is
+      description: Above the limit, as for a freezer too warm, or below it.
+      default: above
+      selector:
+        select:
+          options:
+            - label: Above the limit
+              value: above
+            - label: Below the limit
+              value: below
+    limit:
+      name: Limit
+      description: >-
+        In the sensor's own unit. A reading at the limit is within it.
+      selector:
+        number:
+          min: -1000000
+          max: 1000000
+          step: any
+          mode: box
+    duration:
+      name: Duration
+      description: >-
+        A Limit Breach is notified once the reading has been past the limit
+        this long. Leave at 0 to notify immediately.
+      default:
+        hours: 0
+        minutes: 0
+        seconds: 0
+      selector:
+        duration:
+    critical:
+      name: Critical
+      description: >-
+        Warn with an iOS critical sound, which plays at full volume even in
+        silent mode and breaks through Focus modes.
+      default: false
+      selector:
+        boolean:
+    recipients:
+      name: Recipients
+      description: The phones warned about the Limit Breach.
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: mobile_app
+    title:
+      name: Title
+      description: The Notification's title, such as "Freezer too warm".
+      selector:
+        text:
+    message:
+      name: Message
+      description: >-
+        The Notification's message, such as "The chest freezer is above
+        15 °F." The current reading is added after it.
+      selector:
+        text:
+
+# A run lasts from a Limit Breach until it clears. A new Breach meanwhile, such
+# as the reading coming back past the limit from unavailable, starts over and
+# warns again, so none is ever dropped.
+mode: restart
+
+trigger_variables:
+  sensor: !input sensor
+  direction: !input direction
+  limit: !input limit
+  # What the shared check below gives: breach (the reading is past the limit)
+  # or cleared (it is back within it). A reading that isn't a number is
+  # neither, so it never breaches, nor clears.
+  output: breach
+
+triggers:
+  # A template trigger fires only when the reading goes past the limit, never
+  # for one already past it when Home Assistant starts.
+  - trigger: template
+    value_template: &check >-
+      {%- set value = states(sensor) -%}
+      {%- set past = value | float(0) > limit | float if direction == 'above'
+                     else value | float(0) < limit | float -%}
+      {{ is_number(value) and (past if output == 'breach' else not past) }}
+    for: !input duration
+
+variables:
+  recipients: !input recipients
+  title: !input title
+  message: !input message
+  critical: !input critical
+  # The Breach and its clearing are one Notification, updated in place.
+  tag: "safety-limit-breach-{{ this.entity_id }}"
+
+actions:
+  - variables:
+      reading: &reading >-
+        {%- set unit = state_attr(sensor, 'unit_of_measurement') -%}
+        {{ states(sensor) }}{{ ' ' ~ unit if unit else '' }}
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }}"
+            message: "{{ message }} Now {{ reading }}."
+            data:
+              tag: "{{ tag }}"
+              push: >-
+                {{ {'sound': {'name': 'default', 'critical': 1, 'volume': 1.0},
+                    'interruption-level': 'critical'} if critical
+                   else {'sound': 'default'} }}
+  # Only a number within the limit clears the Limit Breach: unavailable or
+  # unknown says nothing about whether it is over.
+  - variables:
+      output: cleared
+  - wait_template: *check
+  - variables:
+      reading: *reading
+  - repeat:
+      for_each: "{{ recipients }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ title }} cleared"
+            message: "{{ message }} Now {{ reading }}."
+            data:
+              tag: "{{ tag }}"
+              push:
+                sound: none
+                interruption-level: passive

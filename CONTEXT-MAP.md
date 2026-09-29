@@ -7,7 +7,7 @@ Home Assistant automations for one household, written as Blueprints that other h
 - [Front Door](./front-door/CONTEXT.md): tells household members about activity at the front door worth their attention
 - [Climate](./climate/CONTEXT.md): keeps the home comfortable, and says when to open or close the windows
 - [Infrastructure](./infrastructure/CONTEXT.md): tells the Administrator when the systems the home depends on fail or recover
-- [Safety](./safety/CONTEXT.md): warns the household about hazards in the home
+- [Safety](./safety/CONTEXT.md): warns the household about hazards in the home, and readings past safe limits
 
 ## Shared language
 
