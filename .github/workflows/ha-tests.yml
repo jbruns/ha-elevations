@@ -93,7 +93,7 @@ jobs:
           persist-credentials: false
 
       # Python comes from requires-python in pyproject.toml.
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
 
