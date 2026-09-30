@@ -116,6 +116,34 @@ async def test_a_closure_is_not_a_school_day(school_day: SchoolDay) -> None:
     assert school_day.tomorrow is True
 
 
+async def test_a_multi_day_closure_that_began_before_today_closes_today_and_tomorrow(
+    school_day: SchoolDay,
+) -> None:
+    await school_day.closures.set_events(
+        [Event(date(2026, 12, 22), date(2027, 1, 2), "No school: winter break")]
+    )
+    await school_day.start()
+
+    await school_day.run_at_six(date(2026, 12, 23))
+
+    assert school_day.today is False
+    assert school_day.tomorrow is False
+
+
+async def test_a_closure_ending_today_does_not_close_today(
+    school_day: SchoolDay,
+) -> None:
+    await school_day.closures.set_events(
+        [Event(date(2026, 9, 2), date(2026, 9, 3), "No school")]
+    )
+    await school_day.start()
+
+    await school_day.run_at_six(date(2026, 9, 3))
+
+    assert school_day.today is True
+    assert school_day.tomorrow is True
+
+
 @pytest.mark.parametrize("day", [date(2026, 8, 31), date(2027, 6, 19)])
 async def test_before_the_first_day_and_after_the_last_day_are_not_school_days(
     school_day: SchoolDay, day: date

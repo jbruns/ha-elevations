@@ -118,18 +118,40 @@ actions:
     response_variable: district
     continue_on_error: true
   - variables:
-      closure_dates: >-
+      closures_today: >-
         {%- set events = (closures if closures is defined and closures is mapping else {}).get(closures_entity, {}).get('events', []) -%}
         {%- set phrase = closure_phrase | lower -%}
-        {%- set ns = namespace(days=[]) -%}
+        {%- set ns = namespace(closed=false) -%}
         {%- for event in events if event is mapping -%}
           {%- set summary = event.get('summary', '') | lower -%}
           {%- set starts = as_datetime(event.get('start')) -%}
-          {%- if phrase in summary and starts is not none -%}
-            {%- set ns.days = ns.days + [as_local(starts).date().isoformat()] -%}
+          {%- set ends = as_datetime(event.get('end')) -%}
+          {%- if phrase in summary and starts is not none and ends is not none -%}
+            {%- set start_day = as_local(starts).date().isoformat() -%}
+            {%- set end_day = as_local(ends).date().isoformat() -%}
+            {%- if start_day <= today < end_day -%}
+              {%- set ns.closed = true -%}
+            {%- endif -%}
           {%- endif -%}
         {%- endfor -%}
-        {{ ns.days }}
+        {{ ns.closed }}
+      closures_tomorrow: >-
+        {%- set events = (closures if closures is defined and closures is mapping else {}).get(closures_entity, {}).get('events', []) -%}
+        {%- set phrase = closure_phrase | lower -%}
+        {%- set ns = namespace(closed=false) -%}
+        {%- for event in events if event is mapping -%}
+          {%- set summary = event.get('summary', '') | lower -%}
+          {%- set starts = as_datetime(event.get('start')) -%}
+          {%- set ends = as_datetime(event.get('end')) -%}
+          {%- if phrase in summary and starts is not none and ends is not none -%}
+            {%- set start_day = as_local(starts).date().isoformat() -%}
+            {%- set end_day = as_local(ends).date().isoformat() -%}
+            {%- if start_day <= tomorrow < end_day -%}
+              {%- set ns.closed = true -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.closed }}
       school_start: >-
         {%- set events = (district if district is defined and district is mapping else {}).get(district_entity, {}).get('events', []) -%}
         {%- set phrase = first_day_phrase | lower -%}
@@ -162,12 +184,12 @@ actions:
         {{ school_start and school_end
            and school_start <= today <= school_end
            and now().weekday() < 5
-           and today not in closure_dates }}
+           and not closures_today }}
       tomorrow_school_day: >-
         {{ school_start and school_end
            and school_start <= tomorrow <= school_end
            and (now() + timedelta(days=1)).weekday() < 5
-           and tomorrow not in closure_dates }}
+           and not closures_tomorrow }}
   - if: "{{ today_school_day }}"
     then:
       - action: input_boolean.turn_on

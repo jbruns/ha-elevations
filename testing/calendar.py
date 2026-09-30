@@ -33,11 +33,7 @@ class Calendar(CalendarEntity):
 
     @property
     def event(self) -> CalendarEvent | None:
-        if not self._events:
-            return None
-        return min(
-            self._events, key=lambda event: _as_datetime(event.start)
-        ).as_calendar_event()
+        return None
 
     async def set_events(self, events: list[Event]) -> None:
         self._events = list(events)
@@ -60,8 +56,8 @@ def _as_datetime(value: date | datetime) -> datetime:
     else:
         when = datetime.combine(value, time.min)
     if when.tzinfo is None:
-        return dt_util.as_local(when.replace(tzinfo=dt_util.UTC))
-    return when
+        return when.replace(tzinfo=dt_util.get_default_time_zone())
+    return dt_util.as_local(when)
 
 
 @pytest.fixture
