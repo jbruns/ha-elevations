@@ -11,6 +11,7 @@ The repo is organised by context (ADR 0007). Each context's folder holds its glo
 - [Infrastructure](./infrastructure/README.md): tells the Administrator when the home's systems fail or recover, and which batteries need replacing.
 - [Safety](./safety/README.md): warns the household about hazards in the home, and readings past safe limits.
 - [Lighting](./lighting/README.md): turns lights on and off with the sun, the hour, and each other.
+- [Family](./family/README.md): supports the children's routines, such as Screen Time and the school day.
 
 Architecture decisions are in [docs/adr/](./docs/adr/).
 
