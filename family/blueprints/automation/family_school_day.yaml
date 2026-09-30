@@ -1,0 +1,188 @@
+blueprint:
+  name: School Day
+  description: >-
+    Publishes whether today and tomorrow are School Days: weekdays within the
+    school year, from the first to the last day of school on the district
+    calendar, that are not closures. See family/README.md in
+    jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/family/blueprints/automation/family_school_day.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    calendars:
+      name: Calendars
+      icon: mdi:calendar-month
+      input:
+        district_calendar:
+          name: District calendar
+          description: Calendar containing first-day and last-day events for the school year.
+          selector:
+            entity:
+              filter:
+                domain: calendar
+        closures_calendar:
+          name: Closures calendar
+          description: Calendar containing closure events such as holidays and no-school days.
+          selector:
+            entity:
+              filter:
+                domain: calendar
+    helpers:
+      name: Helpers
+      icon: mdi:toggle-switch
+      input:
+        today_school_day:
+          name: Today's School Day helper
+          description: Toggle helper turned on when today is a School Day.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        tomorrow_school_day:
+          name: Tomorrow's School Day helper
+          description: Toggle helper turned on when tomorrow is a School Day.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+    phrases:
+      name: Summary phrases
+      icon: mdi:text-search
+      collapsed: true
+      input:
+        first_day_phrase:
+          name: First day of school phrase
+          description: Case-insensitive text matched in the district calendar summary.
+          default: first day of school
+          selector:
+            text:
+        last_day_phrase:
+          name: Last day of school phrase
+          description: Case-insensitive text matched in the district calendar summary.
+          default: last day of school
+          selector:
+            text:
+        closure_phrase:
+          name: Closure phrase
+          description: Case-insensitive text matched in the closures calendar summary.
+          default: no school
+          selector:
+            text:
+    timing:
+      name: Timing
+      icon: mdi:clock-outline
+      collapsed: true
+      input:
+        check_time:
+          name: Check time
+          description: When School Day is refreshed each morning.
+          default: "06:00:00"
+          selector:
+            time:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: time
+    at: !input check_time
+  - trigger: homeassistant
+    event: start
+
+variables:
+  district_entity: !input district_calendar
+  closures_entity: !input closures_calendar
+  first_day_phrase: !input first_day_phrase
+  last_day_phrase: !input last_day_phrase
+  closure_phrase: !input closure_phrase
+  today: "{{ now().date() }}"
+  tomorrow: "{{ (now() + timedelta(days=1)).date() }}"
+  school_year: "{{ now().year if now().month >= 7 else now().year - 1 }}"
+
+actions:
+  - action: calendar.get_events
+    target:
+      entity_id: !input closures_calendar
+    data:
+      start_date_time: "{{ today }} 00:00:00"
+      end_date_time: "{{ tomorrow }} 23:59:59"
+    response_variable: closures
+    continue_on_error: true
+  - action: calendar.get_events
+    target:
+      entity_id: !input district_calendar
+    data:
+      start_date_time: "{{ school_year }}-07-01 00:00:00"
+      end_date_time: "{{ school_year | int + 1 }}-08-31 23:59:59"
+    response_variable: district
+    continue_on_error: true
+  - variables:
+      closure_dates: >-
+        {%- set events = (closures if closures is defined and closures is mapping else {}).get(closures_entity, {}).get('events', []) -%}
+        {%- set phrase = closure_phrase | lower -%}
+        {%- set ns = namespace(days=[]) -%}
+        {%- for event in events if event is mapping -%}
+          {%- set summary = event.get('summary', '') | lower -%}
+          {%- set starts = as_datetime(event.get('start')) -%}
+          {%- if phrase in summary and starts is not none -%}
+            {%- set ns.days = ns.days + [as_local(starts).date().isoformat()] -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.days }}
+      school_start: >-
+        {%- set events = (district if district is defined and district is mapping else {}).get(district_entity, {}).get('events', []) -%}
+        {%- set phrase = first_day_phrase | lower -%}
+        {%- set ns = namespace(day=none) -%}
+        {%- for event in events if event is mapping -%}
+          {%- set summary = event.get('summary', '') | lower -%}
+          {%- set starts = as_datetime(event.get('start')) -%}
+          {%- if phrase in summary and starts is not none -%}
+            {%- set day = as_local(starts).date() -%}
+            {%- if ns.day is none or day < ns.day -%}
+              {%- set ns.day = day -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.day }}
+      school_end: >-
+        {%- set events = (district if district is defined and district is mapping else {}).get(district_entity, {}).get('events', []) -%}
+        {%- set phrase = last_day_phrase | lower -%}
+        {%- set ns = namespace(day=none) -%}
+        {%- for event in events if event is mapping -%}
+          {%- set summary = event.get('summary', '') | lower -%}
+          {%- set starts = as_datetime(event.get('start')) -%}
+          {%- if phrase in summary and starts is not none -%}
+            {%- set ns.day = as_local(starts).date() -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.day }}
+  - variables:
+      today_school_day: >-
+        {{ school_start and school_end
+           and school_start <= today <= school_end
+           and now().weekday() < 5
+           and today not in closure_dates }}
+      tomorrow_school_day: >-
+        {{ school_start and school_end
+           and school_start <= tomorrow <= school_end
+           and (now() + timedelta(days=1)).weekday() < 5
+           and tomorrow not in closure_dates }}
+  - if: "{{ today_school_day }}"
+    then:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: !input today_school_day
+    else:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: !input today_school_day
+  - if: "{{ tomorrow_school_day }}"
+    then:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: !input tomorrow_school_day
+    else:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: !input tomorrow_school_day
