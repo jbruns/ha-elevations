@@ -7,7 +7,13 @@ cards:
 - type: horizontal-stack
   cards:
   - type: custom:mushroom-title-card
-    title: '{{ states(''input_select.ui_frontend_greeting'') }}'
+    title: >-
+      {%- set hour = now().hour -%}
+      {%- if 6 <= hour < 12 -%} Good Morning
+      {%- elif 12 <= hour < 17 -%} Good Afternoon
+      {%- elif 17 <= hour < 22 -%} Good Evening
+      {%- else -%} Good Night
+      {%- endif -%}
     title_tap_action:
       action: none
     subtitle_tap_action:

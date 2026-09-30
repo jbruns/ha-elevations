@@ -75,7 +75,7 @@ Copy `our-home/our-home.local.example.yaml` to `our-home/our-home.local.yaml` an
 
 ### Prerequisites
 
-- **Helpers**: the Front Door Snooze Date and time helpers, one per Recipient; the greeting input select currently used by the Conditions view.
+- **Helpers**: the Front Door Snooze Date and time helpers, one per Recipient. The Conditions view works out its greeting from the time of day itself; it needs no helper.
 - **Roles**: none are consumed by Our Home yet. Keep the live entities as-is for this faithful extraction; later restructuring can consume Climate's **Exterior Doors** or Safety's **Immediate Hazards** only where the meaning exactly matches ADR 0010.
 - **Packages**: none for the faithful Our Home extraction. The shared weather forecast package remains documented above for Displays that consume those forecast sensors.
 - **Custom cards**: Advanced Camera Card, Mushroom, bignumber-card, Stack In Card, button-card, Simple Thermostat and Valetudo Map Card, with versions listed in `custom-cards.yaml`.
@@ -98,4 +98,5 @@ Do not cut over without an explicit maintainer request.
    ```
 
 5. In Home Assistant, open Our Home (`url_path: our-home`) and paste the rendered YAML into the raw configuration editor.
-6. Save, then verify all seven views: Conditions, Lighting, Climate, Cameras, Devices, TV and Front Door.
+6. Save, then verify all seven views: Conditions, Lighting, Climate, Cameras, Devices, TV and Front Door. The Conditions view's title shows the greeting for the time of day.
+7. Retire the greeting and day-of-week automations and their input select helpers. Our Home no longer reads either helper. The legacy Overview dashboard still reads both, so retire it first, or accept that its cards break.
