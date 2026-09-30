@@ -1,0 +1,168 @@
+# Runs a repo's Home Assistant tests (pytest-homeassistant-custom-component,
+# "phcc") with uv. Reusable: other repos call it. See docs/ci.md.
+#
+# gate:   the pinned phcc from uv.lock. Fails if the pin is an HA pre-release,
+#         because the pin leads live HA (ADR 0008).
+# canary: the newest phcc that pins a stable HA, plus the newest that pins an
+#         HA beta while one is out. Keeps one rolling issue in the calling repo:
+#         opened or updated on failure, closed when green again.
+name: HA tests
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "gate or canary"
+        type: string
+        default: gate
+      pytest-args:
+        description: "Extra arguments for pytest"
+        type: string
+        default: ""
+
+# No workflow-level permissions: the report job inherits the caller's, so a
+# gate caller needs only contents: read and a canary caller adds issues: write.
+
+jobs:
+  resolve:
+    name: Resolve versions
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - id: resolve
+        env:
+          MODE: ${{ inputs.mode }}
+        shell: python
+        run: |
+          import json, os, re, sys, urllib.request
+
+          mode = os.environ["MODE"]
+          if mode == "gate":
+              channels = [{"channel": "pinned", "phcc": "", "ha": ""}]
+          elif mode == "canary":
+              pkg = "pytest-homeassistant-custom-component"
+
+              def pypi(path):
+                  with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/{path}", timeout=30) as r:
+                      return json.load(r)
+
+              # phcc has no pre-releases of its own. Instead some of its stable
+              # versions pin an HA beta, so read the HA pin of each version,
+              # newest first, until one pins a stable HA.
+              releases = pypi("json")["releases"]
+              uploaded = {
+                  v: max(f["upload_time_iso_8601"] for f in files)
+                  for v, files in releases.items()
+                  if files and not all(f.get("yanked") for f in files)
+              }
+              channels = []
+              for version in sorted(uploaded, key=uploaded.get, reverse=True)[:30]:
+                  requires = pypi(f"{version}/json")["info"]["requires_dist"] or []
+                  pin = next((r for r in requires if re.match(r"homeassistant\s*==", r)), None)
+                  if pin is None:
+                      continue
+                  ha = pin.split("==", 1)[1].split(";")[0].strip()
+                  if re.search(r"(a|b|rc|dev)\d*$", ha):
+                      if not channels:
+                          channels.append({"channel": "beta", "phcc": version, "ha": ha})
+                      continue
+                  channels.insert(0, {"channel": "latest", "phcc": version, "ha": ha})
+                  break
+              if not channels or channels[0]["channel"] != "latest":
+                  sys.exit("No phcc release among the newest 30 pins a stable Home Assistant")
+          else:
+              sys.exit(f"mode must be gate or canary, not {mode!r}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"matrix={json.dumps(channels)}\n")
+          print(json.dumps(channels, indent=2))
+
+  test:
+    name: ${{ matrix.channel }}${{ matrix.ha && format(' (HA {0})', matrix.ha) || '' }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Python comes from requires-python in pyproject.toml.
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Install phcc ${{ matrix.phcc }}
+        if: matrix.phcc != ''
+        env:
+          PHCC: ${{ matrix.phcc }}
+        run: uv pip install "pytest-homeassistant-custom-component==$PHCC"
+
+      - name: Home Assistant version
+        id: ha
+        env:
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          version=$(uv run --no-sync python -c 'from homeassistant.const import __version__; print(__version__)')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Home Assistant $version ($CHANNEL)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: pytest
+        env:
+          PYTEST_ARGS: ${{ inputs.pytest-args }}
+        run: |
+          read -ra args <<<"$PYTEST_ARGS"
+          uv run --no-sync pytest "${args[@]}"
+
+      - name: The pin is a stable Home Assistant
+        if: ${{ !cancelled() && inputs.mode == 'gate' && steps.ha.outputs.version != '' }}
+        env:
+          HA_VERSION: ${{ steps.ha.outputs.version }}
+        run: |
+          if [[ "$HA_VERSION" =~ (a|b|rc|dev)[0-9]*$ ]]; then
+            echo "::error::The pinned phcc runs Home Assistant $HA_VERSION, a pre-release. The pin leads live HA (ADR 0008 in jbruns/ha-elevations), so it must be a release live HA can upgrade to. Wait for a phcc that pins a stable release."
+            exit 1
+          fi
+
+  report:
+    name: Rolling issue
+    needs: [resolve, test]
+    if: ${{ inputs.mode == 'canary' && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LABEL: ha-canary
+          FAILED: ${{ needs.resolve.result != 'success' || needs.test.result != 'success' }}
+          CHANNELS: ${{ needs.resolve.outputs.matrix }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create "$LABEL" --color d93f0b \
+            --description "Tests fail against the latest Home Assistant" 2>/dev/null || true
+          number=$(gh issue list --label "$LABEL" --state open --limit 1 --json number --jq '.[0].number // empty')
+
+          tested=$(jq -r '.[]? | "- \(.channel): Home Assistant \(.ha), phcc \(.phcc)"' <<<"${CHANNELS:-[]}")
+          [[ -n "$tested" ]] || tested="- Could not resolve the versions to test."
+
+          if [[ "$FAILED" == "true" ]]; then
+            body=$(printf 'The weekly HA canary failed.\n\n%s\n\nRun: %s\n\nThis issue closes itself when the canary is green again.' "$tested" "$RUN_URL")
+            if [[ -n "$number" ]]; then
+              gh issue comment "$number" --body "$body"
+            else
+              gh issue create --title "HA canary: tests fail against the latest Home Assistant" \
+                --label "$LABEL" --body "$body"
+            fi
+          elif [[ -n "$number" ]]; then
+            gh issue comment "$number" --body "$(printf 'The HA canary is green again.\n\n%s\n\nRun: %s' "$tested" "$RUN_URL")"
+            gh issue close "$number" --reason completed
+          fi

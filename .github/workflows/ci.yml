@@ -1,0 +1,14 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ha-tests:
+    name: HA tests
+    uses: ./.github/workflows/ha-tests.yml

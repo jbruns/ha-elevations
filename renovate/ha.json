@@ -1,0 +1,83 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Shared preset for repos that test Home Assistant artifacts with pytest-homeassistant-custom-component. See docs/ci.md in jbruns/ha-elevations.",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard"
+  ],
+  "timezone": "America/Los_Angeles",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on the first day of the month"
+    ]
+  },
+  "pre-commit": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Python comes from requires-python and follows HA; change it by hand when HA's Python changes.",
+      "matchDepTypes": [
+        "requires-python"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Dev tools: dev dependency groups.",
+      "matchDepTypes": [
+        "dependency-groups",
+        "tool.uv.dev-dependencies"
+      ],
+      "groupName": "dev-tools"
+    },
+    {
+      "description": "Dev tools: pre-commit hooks.",
+      "matchManagers": [
+        "pre-commit"
+      ],
+      "groupName": "dev-tools"
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Automerge on green CI: patch and minor dev tools and GitHub Actions only.",
+      "matchDepTypes": [
+        "dependency-groups",
+        "tool.uv.dev-dependencies"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "automerge": true
+    },
+    {
+      "matchManagers": [
+        "pre-commit",
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "The HA pin, on its own and never automerged: a green PR means live HA is safe to upgrade (ADR 0008 in jbruns/ha-elevations). Last, so it overrides the rules above.",
+      "matchPackageNames": [
+        "pytest-homeassistant-custom-component"
+      ],
+      "groupName": "ha-pin",
+      "automerge": false
+    }
+  ],
+  "platformAutomerge": false
+}

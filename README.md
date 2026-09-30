@@ -44,3 +44,5 @@ uv run pytest
 `testing/automations.py` builds an automation from any context's blueprint by its repo path, and creates automations. `testing/tests/` shows each fixture in use.
 
 Before committing, install the hooks that keep secrets and PII out of the repo: `pre-commit install`. See [AGENTS.md](./AGENTS.md).
+
+CI runs the tests on every PR and push to `main`, and a weekly canary runs them against the newest Home Assistant. Renovate proposes dependency updates; a green `ha-pin` PR means live Home Assistant is safe to upgrade (ADR 0008). Other repos can reuse the workflow and the Renovate preset: see [docs/ci.md](./docs/ci.md).
