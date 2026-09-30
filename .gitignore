@@ -25,5 +25,9 @@ __pycache__/
 front-door/frigate/*.local.yaml
 front-door/frigate/build/
 
+# Displays and other household config: real overlays and rendered output.
+dashboards/**/*.local.yaml
+dashboards/**/build/
+
 # Private discovery notes about the live instance: real names and entity IDs. Never committed.
 .private/

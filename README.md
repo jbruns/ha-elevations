@@ -22,6 +22,37 @@ Architecture decisions are in [docs/adr/](./docs/adr/).
 
 Home Assistant saves an imported blueprint as `blueprints/automation/<owner>/<filename>`, dropping the folders in this repo. So every blueprint filename starts with its context, and a test fails if two blueprints anywhere in the repo share a filename.
 
+## Render household config
+
+Household config is committed with `{CONTEXT_NAME}` tokens and rendered locally with gitignored overlays (ADR 0009). Render Frigate with:
+
+```sh
+uv run scripts/render-frigate-config.py
+```
+
+Render a Display source, for example Our Home, with:
+
+```sh
+uv run scripts/render-asset.py display \
+  --source dashboards/our-home/display.yaml \
+  --overlay dashboards/our-home/our-home.local.yaml \
+  --output dashboards/our-home/build/lovelace.yaml
+```
+
+The renderer fails on undefined tokens. Never commit `*.local.yaml` overlays or `build/` output. Cutover is manual: paste or copy the rendered output into Home Assistant.
+
+For faithful Display extraction and pre-cutover checks, run the local-only baseline diff; it reads live Home Assistant read-only and is never used by CI:
+
+```sh
+uv run scripts/diff-rendered-dashboard.py \
+  --source dashboards/our-home/display.yaml \
+  --overlay dashboards/our-home/our-home.local.yaml \
+  --url-path lovelace \
+  --ssh-host hassio@ha.example.com
+```
+
+Instead of SSH, save a read-only `ha_config_get_dashboard` response and pass `--mcp-dashboard-json <file>`.
+
 ## Tests
 
 The tests run the blueprints in a real Home Assistant core, pinned in `pyproject.toml`. Run every context's tests, plus the repo-wide checks in `tests/`:
@@ -42,6 +73,7 @@ uv run pytest
 | `sensors` | any sensor's state and attributes, and battery sensors from a named integration (`testing/sensors.py`) |
 | `clock` | frozen time to move to or advance, firing `for:`, time and time pattern triggers; `advance(..., settle=False)` while a run waits in a `wait_template` or `delay` (`testing/clock.py`) |
 | `lights` | light and switch Leaders plus Follower lights whose `turn_on` and `turn_off` calls are captured; tests can set their state and brightness (`testing/lights.py`) |
+| `testing.displays` | Display seam helpers: render a Display source, load support packages, render templates, check entity/action prerequisites, and verify `custom:` cards against `dashboards/custom-cards.yaml` (`testing/displays.py`) |
 
 `testing/automations.py` builds an automation from any context's blueprint by its repo path, and creates automations. `testing/tests/` shows each fixture in use.
 
