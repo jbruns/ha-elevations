@@ -13,7 +13,7 @@ import yaml
 CONFIG = Path(__file__).parent.parent / "frigate" / "config.yaml"
 
 ARRIVING_CAR = [
-    (0.18, 0.57),  # left end of the driveway
+    (0.23, 0.53),  # left end of the driveway, where cars turn in
     (0.36, 0.55),  # middle of the driveway
     (0.35, 0.609),  # nearest the camera
     (0.62, 0.57),  # right end of the driveway
@@ -27,7 +27,14 @@ PERSON_ON_PORCH = [
 ]
 # A vehicle parked in street parking, which Frigate detects as a car over and
 # over. A car in street parking is never an Alert (front-door/CONTEXT.md).
-STREET_PARKING = [(0.095, 0.60), (0.135, 0.58)]
+# A tree trunk splits it, so Frigate sometimes boxes only the part right of
+# the trunk, and that box's bottom centre sits further right.
+STREET_PARKING = [
+    (0.095, 0.60),  # the whole vehicle
+    (0.135, 0.58),
+    (0.156, 0.57),  # only the part right of the trunk
+    (0.181, 0.567),
+]
 
 
 def _camera() -> dict:
