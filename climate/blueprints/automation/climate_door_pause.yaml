@@ -98,6 +98,8 @@ triggers:
 
 variables:
   doors_input: !input exterior_doors
+  # The entities the triggers watch: the role itself, or each listed door.
+  watched: "{{ [doors_input] if doors_input is string else doors_input }}"
   doors: >-
     {%- set expanded = expand(doors_input) | map(attribute='entity_id') | list -%}
     {{ expanded if expanded else doors_input }}
@@ -154,18 +156,21 @@ actions:
       mode: "{{ states(thermostat_entity) }}"
       paused: "{{ is_state(door_pause_entity, 'on') }}"
       open_doors: "{{ expand(doors) | selectattr('state', 'eq', 'on') | map(attribute='entity_id') | list }}"
-      # Durations are measured from each door's last change, with a second's
-      # slack because a for: trigger fires on the dot.
+      # Durations are measured from each watched entity's last change, with a
+      # second's slack because a for: trigger fires on the dot. For the role,
+      # that's the group's own change: a member changing inside it retriggers
+      # nothing, so timing from members could leave nothing to check again.
       start_pause: >-
         {{ not paused and mode in active_modes and open_doors | length > 0
            and (duration_served
-                or expand(open_doors)
+                or states | selectattr('entity_id', 'in', watched)
+                   | selectattr('state', 'eq', 'on')
                    | selectattr('last_changed', 'le', now() - timedelta(seconds=open_seconds - 1))
                    | list | length > 0) }}
       end_pause: >-
         {{ paused and mode not in ['unavailable', 'unknown'] and open_doors | length == 0
            and (duration_served
-                or expand(doors)
+                or states | selectattr('entity_id', 'in', watched)
                    | selectattr('last_changed', 'gt', now() - timedelta(seconds=closed_seconds - 1))
                    | list | length == 0) }}
   - choose:

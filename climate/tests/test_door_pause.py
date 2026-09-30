@@ -261,6 +261,41 @@ async def test_adding_a_member_to_the_exterior_doors_role_needs_no_automation_ch
     )
 
 
+async def test_the_exterior_doors_role_times_from_the_role_not_its_members(
+    door_pause: DoorPause,
+) -> None:
+    role = await door_pause.exterior_doors_role()
+    await door_pause.start(exterior_doors=[role])
+
+    await door_pause.door(BACK, True)
+    await door_pause.wait(3)
+    await door_pause.door(PATIO, True)
+    await door_pause.wait(1)
+    await door_pause.door(BACK, False)
+    await door_pause.wait(1.5)
+
+    assert door_pause.paused
+    assert door_pause.notifications[0]["message"] == (
+        "Patio Door is open, so the thermostat is off."
+    )
+
+
+async def test_a_role_member_dropping_out_while_closed_still_ends_the_door_pause(
+    door_pause: DoorPause,
+) -> None:
+    role = await door_pause.exterior_doors_role()
+    await paused(door_pause, exterior_doors=[role])
+
+    await door_pause.door(PATIO, False)
+    await door_pause.wait(4)
+    await door_pause.sensors.set(
+        BACK, "unavailable", device_class="door", friendly_name=DOORS[BACK]
+    )
+    await door_pause.wait(1.5)
+
+    assert not door_pause.paused
+
+
 # Ending a Door Pause
 
 
