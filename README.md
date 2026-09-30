@@ -1,6 +1,6 @@
 # ha-elevations
 
-Home Assistant automations for one household, written as Blueprints that other households could use or adapt. Every camera, phone and URL is a blueprint input, so nothing here is specific to one home (ADR 0004).
+Home Assistant automations and Displays for one household. Blueprints that other households could use or adapt, plus this household's own config, templated so it stays public-safe (ADR 0009). Every camera, phone and URL is an input or a placeholder, so nothing committed here identifies the home (ADR 0004).
 
 ## Contexts
 

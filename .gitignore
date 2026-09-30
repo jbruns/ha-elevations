@@ -24,3 +24,6 @@ __pycache__/
 # Frigate: real values and rendered output. Only the template front-door/frigate/config.yaml is committed.
 front-door/frigate/*.local.yaml
 front-door/frigate/build/
+
+# Private discovery notes about the live instance: real names and entity IDs. Never committed.
+.private/
