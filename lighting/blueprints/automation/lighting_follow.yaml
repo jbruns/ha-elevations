@@ -1,0 +1,77 @@
+blueprint:
+  name: Follow
+  description: >-
+    Makes a Follower light copy a Leader light or switch. The Follower turns on
+    and off with the Leader, and can optionally copy a light Leader's brightness.
+    Uses entity triggers, not device triggers.
+    See lighting/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/lighting/blueprints/automation/lighting_follow.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    leader:
+      name: Leader
+      description: The light or switch whose state the Follower copies.
+      selector:
+        entity:
+          filter:
+            - domain: light
+            - domain: switch
+    follower:
+      name: Follower
+      description: The light that copies the Leader.
+      selector:
+        entity:
+          filter:
+            domain: light
+    copy_brightness:
+      name: Copy brightness
+      description: >-
+        When the Leader is a light, copy its brightness to the Follower when
+        brightness is available. Switch Leaders do not have brightness.
+      default: false
+      selector:
+        boolean:
+
+mode: restart
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input leader
+
+variables:
+  leader: !input leader
+  follower: !input follower
+  copy_brightness: !input copy_brightness
+  brightness: "{{ state_attr(leader, 'brightness') }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ is_state(leader, 'on') and copy_brightness and is_number(brightness) }}
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: !input follower
+            data:
+              brightness: "{{ brightness | int }}"
+      - conditions:
+          - condition: state
+            entity_id: !input leader
+            state: "on"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: !input follower
+      - conditions:
+          - condition: state
+            entity_id: !input leader
+            state: "off"
+        sequence:
+          - action: light.turn_off
+            target:
+              entity_id: !input follower
