@@ -1,0 +1,11 @@
+# Our Home is assembled from one source file per view.
+title: Our Home
+url_path: lovelace
+views:
+  - ../../front-door/dashboards/front_door_view.yaml
+prerequisites:
+  entities:
+    - camera.example
+    - input_datetime.snooze_phone_a
+    - input_datetime.snooze_phone_b
+support_packages: []

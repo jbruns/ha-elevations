@@ -26,3 +26,5 @@ Blueprints take all such values as input selectors. Use placeholders like `camer
 Enforced by `pre-commit` (`pre-commit install` after cloning): gitleaks, plus `scripts/check-pii-denylist.sh`. That script checks staged files against `.pii-denylist`, a local, gitignored list of real names, hostnames and device IDs, one per line.
 
 The Frigate config is a template with `{FRIGATE_*}` placeholders; see `front-door/frigate/README.md`. Never commit `front-door/frigate/*.local.yaml` or `front-door/frigate/build/`.
+
+Private discovery notes about the live instance belong in the gitignored `.private/` folder. You may read them for context and add notes there, but never commit that folder or copy its real names, hostnames, URLs or entity IDs into tracked files.

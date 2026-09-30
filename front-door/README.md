@@ -99,7 +99,7 @@ It triggers when the doorbell's button sensor turns on, for example a Reolink do
 ## Front-door view
 
 
-`dashboards/front_door_view.yaml` is the view that tapping an Alert Notification opens. It shows the latest Review for the camera in the [Advanced Camera Card](https://github.com/dermotduffy/advanced-camera-card), with a timeline below it. Drag the timeline to scrub the recording around the moment.
+`dashboards/front_door_view.yaml` is the view that tapping an Alert Notification opens. It is assembled into the Our Home Display by `dashboards/our-home/display.yaml`, through the shared Display seam. It shows the latest Review for the camera in the [Advanced Camera Card](https://github.com/dermotduffy/advanced-camera-card), with a timeline below it. Drag the timeline to scrub the recording around the moment.
 
 - It is a subview, so it has a back arrow and no tab of its own.
 - It shows one camera. For a second camera, add another copy of the view with its own path, and give that path to that camera's automation.

@@ -8,17 +8,37 @@ import pytest
 import yaml
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
-from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 
 from conftest import BLUEPRINT, REVIEW_CARD_ID
+from testing.displays import (
+    DisplaySource,
+    assert_custom_cards_listed,
+    assert_entities_documented,
+    async_create_placeholder_entities,
+    async_load_support_packages,
+    async_render_templates,
+)
 
-VIEW = Path(__file__).parent.parent / "dashboards" / "front_door_view.yaml"
+ROOT = Path(__file__).parents[2]
+DISPLAY = ROOT / "dashboards" / "our-home" / "display.yaml"
+CUSTOM_CARDS = ROOT / "dashboards" / "custom-cards.yaml"
 
 
 @pytest.fixture
-def view() -> dict[str, Any]:
-    return yaml.safe_load(VIEW.read_text())
+def display_source() -> DisplaySource:
+    return DisplaySource.load(DISPLAY)
+
+
+@pytest.fixture
+def display(display_source: DisplaySource) -> dict[str, Any]:
+    return display_source.render()
+
+
+@pytest.fixture
+def view(display: dict[str, Any]) -> dict[str, Any]:
+    [view] = display["views"]
+    return view
 
 
 @pytest.fixture
@@ -98,18 +118,27 @@ def test_view_shows_both_recipients_snoozes(snooze_rows: list) -> None:
         assert helper(resume) in content
 
 
+def test_display_documents_every_entity_it_references(
+    display: dict[str, Any], display_source: DisplaySource
+) -> None:
+    assert_entities_documented(display, display_source)
+
+
+def test_display_custom_cards_are_in_the_manifest(display: dict[str, Any]) -> None:
+    assert_custom_cards_listed(display, CUSTOM_CARDS)
+
+
 async def render(hass: HomeAssistant, content: str) -> str:
     return Template(content, hass).async_render(parse_result=False)
 
 
 @pytest.fixture
-async def helpers(hass: HomeAssistant, snooze_rows: list) -> list[str]:
+async def helpers(
+    hass: HomeAssistant, snooze_rows: list, display_source: DisplaySource
+) -> list[str]:
+    await async_load_support_packages(hass, display_source)
+    await async_create_placeholder_entities(hass, display_source)
     ids = [helper(resume) for _, resume in snooze_rows]
-    assert await async_setup_component(
-        hass,
-        "input_datetime",
-        {"input_datetime": {h.split(".")[1]: {"has_date": True, "has_time": True} for h in ids}},
-    )
     return ids
 
 
@@ -132,6 +161,17 @@ async def test_snooze_state_reads_snoozed_until_or_not_snoozed(
 
     assert f"Snoozed until {until}" in await render(hass, snoozed)
     assert "Not snoozed" in await render(hass, not_snoozed)
+
+
+async def test_display_seam_renders_every_template(
+    hass: HomeAssistant, display: dict[str, Any], display_source: DisplaySource
+) -> None:
+    await async_load_support_packages(hass, display_source)
+    await async_create_placeholder_entities(hass, display_source)
+
+    rendered = await async_render_templates(hass, display)
+
+    assert any("Not snoozed" in value for value in rendered)
 
 
 async def test_resume_ends_that_recipients_snooze_only(

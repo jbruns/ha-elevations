@@ -1,0 +1,6 @@
+# Custom cards that committed Displays may use.
+# Versions are read-only discovery from live HACS; upgrades are separate changes.
+custom_cards:
+  advanced-camera-card:
+    repository: dermotduffy/advanced-camera-card
+    installed_version: v8.1.0
