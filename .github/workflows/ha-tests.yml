@@ -19,6 +19,10 @@ on:
         description: "Extra arguments for pytest"
         type: string
         default: ""
+      working-directory:
+        description: "Directory of the uv project, relative to the repo root"
+        type: string
+        default: "."
 
 # No workflow-level permissions: the report job inherits the caller's, so a
 # gate caller needs only contents: read and a canary caller adds issues: write.
@@ -87,6 +91,9 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -96,6 +103,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
+          working-directory: ${{ inputs.working-directory }}
 
       - run: uv sync --frozen
 

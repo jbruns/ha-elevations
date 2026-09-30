@@ -10,6 +10,7 @@ Python comes from `requires-python` via uv, so the jobs follow HA's Python.
 | --- | --- | --- |
 | `mode` | `gate` | `gate`: `uv sync --frozen`, then `uv run pytest` on the pinned phcc. Fails if the pin is an HA pre-release. `canary`: the same tests on the newest phcc that pins a stable HA. Neither mode tests HA betas. |
 | `pytest-args` | `""` | Extra pytest arguments, split on spaces. |
+| `working-directory` | `.` | Directory of the uv project, relative to the repo root. For example `home_assistant` when the HA tests live beside another project. |
 
 The canary keeps one rolling issue in the calling repo, labelled `ha-canary` (created if missing). It opens the issue on the first failure and comments on it at each failure after that. When the canary is green again, it comments and closes the issue. It never contacts Home Assistant.
 
