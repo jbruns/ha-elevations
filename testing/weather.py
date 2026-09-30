@@ -1,4 +1,4 @@
-"""A weather entity with an hourly forecast that a test sets hour by hour.
+"""A weather entity with forecasts that a test sets period by period.
 
 Its native units are the ones Home Assistant shows for its unit system, so
 the values a test sets are the values weather.get_forecasts answers.
@@ -19,8 +19,8 @@ HOUR = timedelta(hours=1)
 
 
 @dataclass
-class Hour:
-    """One hour of forecast; leave a value out and the forecast omits it."""
+class Period:
+    """One forecast period; leave a value out and the forecast omits it."""
 
     temperature: float | None = None
     dew_point: float | None = None
@@ -30,6 +30,10 @@ class Hour:
     wind_gust_speed: float | None = None
 
 
+Hour = Period
+Day = Period
+
+
 def native_key(key: str) -> str:
     """The Forecast key for an Hour field; values with a unit are native_."""
     return key if key == "precipitation_probability" else f"native_{key}"
@@ -37,13 +41,16 @@ def native_key(key: str) -> str:
 
 class Weather(WeatherEntity):
     _attr_should_poll = False
-    _attr_supported_features = WeatherEntityFeature.FORECAST_HOURLY
+    _attr_supported_features = (
+        WeatherEntityFeature.FORECAST_HOURLY | WeatherEntityFeature.FORECAST_DAILY
+    )
     _attr_condition = "cloudy"
 
     def __init__(self) -> None:
         self.entity_id = ENTITY_ID
         self._attr_name = "Example"
         self._hours: list[Hour] = []
+        self._days: list[Day] = []
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -55,6 +62,11 @@ class Weather(WeatherEntity):
         """The forecast from the current hour on, one Hour per hour."""
         self._hours = list(hours)
         await self.async_update_listeners(["hourly"])
+
+    async def set_daily(self, days: list[Day]) -> None:
+        """The forecast from today on, one Day per day."""
+        self._days = list(days)
+        await self.async_update_listeners(["daily"])
 
     async def async_forecast_hourly(self) -> list[Forecast]:
         start = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
@@ -68,6 +80,20 @@ class Weather(WeatherEntity):
                 },
             )
             for index, hour in enumerate(self._hours)
+        ]
+
+    async def async_forecast_daily(self) -> list[Forecast]:
+        start = dt_util.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        return [
+            Forecast(
+                datetime=(start + index * timedelta(days=1)).isoformat(),
+                **{
+                    native_key(key): value
+                    for key, value in asdict(day).items()
+                    if value is not None
+                },
+            )
+            for index, day in enumerate(self._days)
         ]
 
 

@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
 
 from testing.automations import async_setup_automations, blueprint_automation
 from testing.clock import Clock
@@ -23,6 +24,7 @@ from testing.thermostat import Thermostat
 BLUEPRINT = "climate/blueprints/automation/climate_door_pause.yaml"
 PATIO = "binary_sensor.example_patio_door"
 BACK = "binary_sensor.example_back_door"
+ROLE = "binary_sensor.example_exterior_doors"
 DOORS = {PATIO: "Patio Door", BACK: "Back Door"}
 MINUTE = timedelta(minutes=1)
 
@@ -68,6 +70,24 @@ class DoorPause:
             await self.hass.async_block_till_done()
         else:
             await self.clock.let_runs_start()
+
+    async def exterior_doors_role(self, doors: list[str] | None = None) -> str:
+        assert await async_setup_component(
+            self.hass,
+            "binary_sensor",
+            {
+                "binary_sensor": [
+                    {
+                        "platform": "group",
+                        "name": "Example Exterior Doors",
+                        "device_class": "door",
+                        "entities": doors or list(DOORS),
+                    }
+                ]
+            },
+        )
+        await self.hass.async_block_till_done()
+        return ROLE
 
     async def wait(self, minutes: float, *, settle: bool = True) -> None:
         """Let time pass. settle=False while a run waits, such as after a restart."""
@@ -208,6 +228,37 @@ async def test_the_open_duration_is_an_input(door_pause: DoorPause) -> None:
     await door_pause.wait(2)
 
     assert door_pause.paused
+
+
+async def test_the_exterior_doors_role_pauses_for_any_member(door_pause: DoorPause) -> None:
+    role = await door_pause.exterior_doors_role()
+    await door_pause.start(exterior_doors=[role])
+
+    await door_pause.door(PATIO, True)
+    await door_pause.wait(5)
+
+    assert door_pause.paused
+    assert door_pause.notifications[0]["message"] == (
+        "Patio Door is open, so the thermostat is off."
+    )
+
+
+async def test_adding_a_member_to_the_exterior_doors_role_needs_no_automation_change(
+    door_pause: DoorPause,
+) -> None:
+    side = "binary_sensor.example_side_door"
+    role = await door_pause.exterior_doors_role([PATIO, BACK, side])
+    await door_pause.start(exterior_doors=[role])
+
+    await door_pause.sensors.set(
+        side, "on", device_class="door", friendly_name="Side Door"
+    )
+    await door_pause.wait(5)
+
+    assert door_pause.paused
+    assert door_pause.notifications[0]["message"] == (
+        "Side Door is open, so the thermostat is off."
+    )
 
 
 # Ending a Door Pause

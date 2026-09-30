@@ -35,7 +35,7 @@ uv run pytest
 | Fixture | Gives a test |
 | --- | --- |
 | `recipient`, `other_recipient`, `administrator` | mobile_app phones whose `notify.mobile_app_<phone>` calls are captured (`testing/phones.py`) |
-| `weather` | `weather.example`, whose hourly forecast a test sets hour by hour with `Hour(...)` (`testing/weather.py`) |
+| `weather` | `weather.example`, whose hourly and daily forecasts a test sets period by period with `Hour(...)` and `Day(...)` (`testing/weather.py`) |
 | `household` | Household Home, from the persons in `zone.home`: `await household.set_home(n)` (`testing/household.py`) |
 | `thermostat` | `climate.example`, recording `set_temperature` and `set_hvac_mode` calls; `set(available=False)` makes it unavailable (`testing/thermostat.py`) |
 | `helpers` | `input_boolean`, `input_select`, `input_datetime`, `input_text` and `timer` created by name (`testing/helpers.py`) |
