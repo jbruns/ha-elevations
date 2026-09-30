@@ -23,7 +23,6 @@ prerequisites:
   - cover.example_garage_door
   - input_datetime.snooze_phone_a
   - input_datetime.snooze_phone_b
-  - input_select.ui_frontend_greeting
   - light.basement_entry
   - light.basement_stairwell
   - light.breezeway
