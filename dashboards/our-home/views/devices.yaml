@@ -1,0 +1,32 @@
+title: Devices
+path: devices
+badges: []
+cards:
+- type: vertical-stack
+  cards:
+  - type: custom:mushroom-vacuum-card
+    entity: {MAIN_FLOOR_VACUUM_ENTITY}
+    name: Main Floor Vacuum
+    commands:
+    - start_pause
+    - stop
+    - locate
+    - return_home
+    primary_info: name
+    secondary_info: last-changed
+  - vacuum: {MAIN_FLOOR_VACUUM_ID}
+    type: custom:valetudo-map-card
+    show_locate_button: false
+    show_start_button: false
+    title: null
+- type: entities
+  entities:
+  - entity: light.wled
+    name: Christmas Tree
+    icon: mdi:pine-tree
+  - entity: number.wled_intensity
+    name: Brightness
+    icon: mdi:brightness-6
+  - entity: select.wled_preset
+    name: Preset
+  title: Christmas Tree

@@ -1,0 +1,29 @@
+title: Cameras
+path: cameras
+badges: []
+cards:
+- type: custom:advanced-camera-card
+  cameras:
+  - camera_entity: {FRONT_DOOR_CAMERA}
+    live_provider: go2rtc
+    go2rtc:
+      modes:
+      - webrtc
+      metadata_fetch_timeout_seconds: 10
+    capabilities:
+      force:
+      - 2-way-audio
+    triggers:
+      entities:
+      - {FRONT_DOOR_DOORBELL_VISITOR}
+    title: Front Door
+  view:
+    triggers:
+      filter_selected_camera: false
+      untrigger_delay_seconds: 30
+      actions:
+        interaction_mode: all
+        trigger: call
+        untrigger: call
+  profiles:
+  - scrubbing

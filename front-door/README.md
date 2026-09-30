@@ -5,7 +5,7 @@ Tells household members about activity at the front door worth their attention. 
 This folder holds:
 
 - `blueprints/automation/`: the Alert Notifications and Doorbell Press Notifications blueprints.
-- `dashboards/front_door_view.yaml`: the front-door view that a Notification opens.
+- `../dashboards/our-home/views/front-door.yaml`: the front-door view that a Notification opens.
 - `frigate/`: the Frigate config, as a template (see [frigate/README.md](./frigate/README.md)).
 - `tests/`: runs the blueprints in a real Home Assistant core.
 
@@ -40,9 +40,9 @@ Restart Frigate. Walk into a Watched Zone and check that the Frigate UI shows an
 
 1. In the Frigate integration's options, set the notification proxy's expiry to `86400` seconds (24 hours).
 2. Create the helpers: one Date and time helper for the Quiet Window, and one Snooze helper per Recipient. See [Alert Notifications → Set up](#set-up), steps 2 and 3.
-3. Add the front-door view to a dashboard ([Front-door view → Add it](#add-it)). Note its path, for example `/lovelace/front-door`, and the path of your live cameras view.
+3. Add the front-door view to a dashboard ([Front-door view → Add it](#add-it)). Note its path, for example `/our-home/front-door`, and the path of your live cameras view.
 4. Import both blueprints: Settings → Automations & Scenes → Blueprints → Import Blueprint, with each file's GitHub URL.
-5. Create one Alert Notifications automation per camera. The Review view and Live view inputs default to `/lovelace/front-door` and `/lovelace/cameras`. If your views are on another dashboard, give their paths instead.
+5. Create one Alert Notifications automation per camera. The Review view and Live view inputs default to `/our-home/front-door` and `/our-home/cameras`. If your views are on another dashboard, give their paths instead.
 6. Create one Doorbell Press Notifications automation, if you have a doorbell. Turn off any other automation that notifies on a doorbell press, or Recipients get two Notifications per press.
 7. On each iPhone, turn on Time Sensitive Notifications for the Home Assistant app ([Doorbell Press Notifications → Set up](#set-up-1), step 3).
 
@@ -76,7 +76,7 @@ It reads Frigate's `frigate/reviews` and `frigate/events` MQTT topics.
 3. For each Recipient, create a Snooze helper the same way, with date and time. Its entity ID must be `input_datetime.snooze_<phone>`, where `<phone>` is the phone's device name as in its `notify.mobile_app_<phone>` action. For example, name the helper "Snooze Phone A" for a phone named "Phone A". A phone without one is never offered Snooze.
 4. Add the front-door view to a dashboard: see [Front-door view → Add it](#add-it).
 5. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
-6. Create an automation from it. Pick the Frigate camera, the Recipients' phones and the Quiet Window helper. Give the external URL phones use to reach Home Assistant, for example `https://ha.example.com`. Give the paths of the front-door view and the live cameras view, for example `/lovelace/front-door` and `/lovelace/cameras`.
+6. Create an automation from it. Pick the Frigate camera, the Recipients' phones and the Quiet Window helper. Give the external URL phones use to reach Home Assistant, for example `https://ha.example.com`. Give the paths of the front-door view and the live cameras view, for example `/our-home/front-door` and `/our-home/cameras`.
 
 ## Doorbell Press Notifications
 
@@ -93,13 +93,13 @@ It triggers when the doorbell's button sensor turns on, for example a Reolink do
 ### Set up
 
 1. Import the blueprint as for Alert Notifications, with this file's GitHub URL.
-2. Create an automation from it. Pick the doorbell's button sensor, the camera to stream, and the Recipients' phones. Give the path of the cameras view with two-way audio, for example `/lovelace/cameras`.
+2. Create an automation from it. Pick the doorbell's button sensor, the camera to stream, and the Recipients' phones. Give the path of the cameras view with two-way audio, for example `/our-home/cameras`.
 3. In iOS Settings → Notifications → Home Assistant, turn on Time Sensitive Notifications, and allow the app in each Focus mode that should let it through.
 
 ## Front-door view
 
 
-`dashboards/front_door_view.yaml` is the view that tapping an Alert Notification opens. It is assembled into the Our Home Display by `dashboards/our-home/display.yaml`, through the shared Display seam. It shows the latest Review for the camera in the [Advanced Camera Card](https://github.com/dermotduffy/advanced-camera-card), with a timeline below it. Drag the timeline to scrub the recording around the moment.
+`../dashboards/our-home/views/front-door.yaml` is the view that tapping an Alert Notification opens. It is assembled into the Our Home Display by `dashboards/our-home/display.yaml`, through the shared Display seam. It shows the latest Review for the camera in the [Advanced Camera Card](https://github.com/dermotduffy/advanced-camera-card), with a timeline below it. Drag the timeline to scrub the recording around the moment.
 
 - It is a subview, so it has a back arrow and no tab of its own.
 - It shows one camera. For a second camera, add another copy of the view with its own path, and give that path to that camera's automation.
@@ -109,11 +109,7 @@ It triggers when the doorbell's button sensor turns on, for example a Reolink do
 
 ### Add it
 
-The view uses placeholders like `camera.example` (ADR 0004); replace them when you add it.
-
-1. Open the dashboard, then Edit dashboard → ⋮ → Raw configuration editor.
-2. Paste the file's contents as a new item under `views:`. Replace `camera.example` with the Frigate camera. In each Snooze row, replace `Phone A` / `Phone B` with the Recipient's name and `input_datetime.snooze_phone_a` / `_b` with their Snooze helper (see [Alert Notifications → Set up](#set-up), step 3), in both the text and the Resume button. Copy or delete a row to match the number of Recipients.
-3. Save. The view's path is `/<dashboard>/front-door`, for example `/lovelace/front-door`. Give that path as the Review view in the Alert Notifications blueprint.
+The view is sourced from `../dashboards/our-home/views/front-door.yaml` and assembled into Our Home. Render Our Home from `dashboards/our-home/display.yaml` with a local overlay, then paste the rendered dashboard YAML into Our Home. Replace `camera.example`, `Phone A` / `Phone B`, and `input_datetime.snooze_phone_a` / `_b` in the overlay with this home's camera, Recipient names, and Snooze helpers (see [Alert Notifications → Set up](#set-up), step 3). The view's path is `/our-home/front-door`; give that path as the Review view in the Alert Notifications blueprint.
 
 The Live action of a Notification opens a view you already have with a live camera card, for example a cameras view with two-way audio. Give its path as the blueprint's Live view. A Doorbell Press Notification's Talk action opens the same view; give its path as the Doorbell Press Notifications blueprint's Cameras view.
 

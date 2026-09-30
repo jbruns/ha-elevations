@@ -1,0 +1,40 @@
+title: Climate
+path: climate
+icon: ''
+theme: Mushroom Shadow
+badges: []
+cards:
+- type: custom:simple-thermostat
+  entity: climate.thermostat
+  header: false
+  layout:
+    mode:
+      icons: true
+      names: true
+      headings: false
+  step_size: 1
+- square: true
+  type: grid
+  cards:
+  - type: entities
+    entities:
+    - entity: sensor.rack_front
+      name: Front
+      secondary_info: none
+    - entity: sensor.inlet_fan_duty_cycle
+    - entity: sensor.rack_inlet_fan_air
+      name: Inlet Fan Air Temperature
+      icon: mdi:fan
+    - entity: sensor.rack_interior
+      name: Interior
+    - entity: sensor.outlet_fan_duty_cycle
+    - entity: sensor.rack_outlet_fan_air
+      name: Outlet Fan Air Temperature
+      icon: mdi:fan
+    header:
+      entity: sensor.rack_interior
+      type: graph
+      detail: 2
+    title: Server Rack
+    show_header_toggle: true
+  columns: 1

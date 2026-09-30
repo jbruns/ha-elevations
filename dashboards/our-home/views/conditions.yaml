@@ -1,0 +1,269 @@
+theme: Backend-selected
+title: Conditions
+path: mushroom
+icon: mdi:home
+badges: []
+cards:
+- type: horizontal-stack
+  cards:
+  - type: custom:mushroom-title-card
+    title: '{{ states(''input_select.ui_frontend_greeting'') }}'
+    title_tap_action:
+      action: none
+    subtitle_tap_action:
+      action: none
+  - type: custom:mushroom-person-card
+    entity: {PERSON_A_ENTITY}
+    name: {PERSON_A_NAME}
+  - type: custom:mushroom-person-card
+    entity: {PERSON_B_ENTITY}
+    name: {PERSON_B_NAME}
+- type: custom:mushroom-chips-card
+  chips:
+  - type: template
+    entity: binary_sensor.smoke_bridge_co
+    content: CO
+    icon_color: "{% if is_state(entity,'off') or is_state(entity,'unknown') %}\n  green\n{% else %}\n  red\n{% endif %}"
+    icon: "{% if is_state(entity,'off') or is_state(entity,'unknown') %}\n  mdi:check-circle\n{% else %}\n  mdi:alarm-bell\n{% endif %}"
+    tap_action:
+      action: none
+    hold_action:
+      action: none
+    double_tap_action:
+      action: none
+  - type: template
+    entity: binary_sensor.smoke_bridge_smoke
+    content: Smoke
+    icon_color: "{% if is_state(entity,'off') or is_state(entity,'unknown') %}\n  green\n{% else %}\n  red\n{% endif %}"
+    icon: "{% if is_state(entity,'off') or is_state(entity,'unknown') %}\n  mdi:fire-off\n{% else %}\n  mdi:fire-alert\n{% endif %}"
+    tap_action:
+      action: none
+    hold_action:
+      action: none
+    double_tap_action:
+      action: none
+  - type: template
+    entity: binary_sensor.water_heater_leak_sensor_water_leak_detected
+    content: WH Leak
+    icon_color: "{% if is_state(entity,'off') %}\n  green\n{% else %}\n  red\n{% endif %}"
+    icon: "{% if is_state(entity,'off') %}\n  mdi:water-check\n{% else %}\n  mdi:water-alert\n{% endif %}"
+    tap_action:
+      action: none
+    hold_action:
+      action: none
+    double_tap_action:
+      action: none
+- type: custom:mushroom-chips-card
+  chips:
+  - type: template
+    entity: lock.kitchen_side_door
+    icon: "{% if is_state(entity,'locked') %}\n  mdi:lock\n{% else %}\n  mdi:lock-open\n{% endif %}\n"
+    icon_color: "{% if is_state(entity,'locked') %}\n  green\n{% else %}\n  red\n{% endif %}\n"
+    hold_action:
+      action: none
+    double_tap_action:
+      action: none
+    content: Kitchen Side Door
+    tap_action:
+      action: toggle
+  - type: template
+    entity: lock.front_door
+    icon: "{% if is_state(entity,'locked') %}\n  mdi:lock\n{% else %}\n  mdi:lock-open\n{% endif %}\n"
+    icon_color: "{% if is_state(entity,'locked') %}\n  green\n{% else %}\n  red\n{% endif %}\n"
+    hold_action:
+      action: none
+    double_tap_action:
+      action: none
+    content: Front Door
+    tap_action:
+      action: toggle
+  - type: template
+    entity: lock.garage_breezeway_door
+    icon: "{% if is_state(entity,'locked') %}\n  mdi:lock\n{% else %}\n  mdi:lock-open\n{% endif %}\n"
+    icon_color: "{% if is_state(entity,'locked') %}\n  green\n{% else %}\n  red\n{% endif %}\n"
+    hold_action:
+      action: none
+    double_tap_action:
+      action: none
+    content: Garage Breezeway Door
+    tap_action:
+      action: toggle
+  - type: template
+    entity: {EAST_GARAGE_DOOR_COVER}
+    content: East Door
+    icon_color: "{% if is_state(entity,'closed') %}\n  green\n{% else %}\n  red\n{% endif %}"
+    icon: "{% if is_state(entity,'closed') %}\n  mdi:garage\n{% else %}\n  mdi:garage-open\n{% endif %}"
+- initial_view: listWeek
+  type: calendar
+  entities:
+  - calendar.appointments
+  - calendar.family
+  theme: Mushroom Shadow
+  title: Family Calendar
+- square: true
+  columns: 2
+  type: grid
+  cards:
+  - type: entities
+    entities:
+    - entity: sensor.basement_multisensor_air_temperature
+      secondary_info: none
+      name: Temperature
+    - entity: sensor.basement_multisensor_humidity
+      name: Humidity
+    - entity: sensor.basement_multisensor_illuminance
+      name: Luminance
+    - entity: binary_sensor.basement_multisensor_motion_detection
+      secondary_info: last-changed
+      name: Motion
+    - entity: sensor.basement_multisensor_battery_level
+      name: Sensor Battery
+    title: Basement
+    header:
+      type: graph
+      entity: sensor.2nd_floor_multisensor_air_temperature
+      detail: 2
+  - type: entities
+    entities:
+    - entity: sensor.home_temperature
+      name: Temperature
+      secondary_info: none
+    - entity: sensor.home_humidity
+      name: Humidity
+    header:
+      type: graph
+      entity: sensor.home_temperature
+      detail: 1
+    title: Main Floor
+  - type: entities
+    entities:
+    - entity: sensor.2nd_floor_multisensor_air_temperature
+      name: Temperature
+    - entity: sensor.2nd_floor_multisensor_humidity
+      name: Humidity
+    - entity: sensor.2nd_floor_multisensor_illuminance
+      name: Luminance
+    - entity: binary_sensor.2nd_floor_multisensor_motion_detection
+      name: Motion
+      secondary_info: last-changed
+    - entity: sensor.2nd_floor_multisensor_battery_level
+      name: Sensor Battery
+    header:
+      type: graph
+      entity: sensor.2nd_floor_multisensor_air_temperature
+      detail: 2
+    title: Upstairs
+    state_color: false
+  - type: entities
+    entities:
+    - entity: {OUTDOOR_WEATHER_TEMPERATURE_SENSOR}
+      name: Temperature
+    - entity: {OUTDOOR_WEATHER_HUMIDITY_SENSOR}
+      name: Humidity
+    - entity: {OUTDOOR_WEATHER_FEELS_LIKE_SENSOR}
+      name: Feels Like
+    - entity: {OUTDOOR_WEATHER_WIND_SPEED_SENSOR}
+      name: Wind
+    header:
+      type: graph
+      entity: {OUTDOOR_WEATHER_TEMPERATURE_SENSOR}
+    title: Outdoor
+- show_current: true
+  show_forecast: true
+  type: weather-forecast
+  entity: weather.openweathermap
+  forecast_type: daily
+  name: {WEATHER_LOCATION_NAME}
+- type: vertical-stack
+  title: Outdoor Air Quality
+  cards:
+  - type: horizontal-stack
+    cards:
+    - entity: sensor.purpleair_outdoor_aqi_2_5_120s_moving_average_a
+      color: black;
+      scale: 35px
+      title: PM2.5 (A)
+      min: 0
+      max: 1
+      type: custom:bignumber-card
+      noneCardClass: custom:bignumber-card
+      severity:
+      - value: 50
+        bnStyle: green
+      - value: 100
+        bnStyle: yellow
+      - value: 150
+        bnStyle: orange
+      - value: 200
+        bnStyle: red
+      - value: 250
+        bnStyle: magenta
+    - entity: sensor.purpleair_outdoor_aqi_2_5_120s_moving_average_b
+      color: black;
+      scale: 35px
+      title: PM2.5 (B)
+      min: 0
+      max: 1
+      type: custom:bignumber-card
+      noneCardClass: custom:bignumber-card
+      severity:
+      - value: 50
+        bnStyle: green
+      - value: 100
+        bnStyle: yellow
+      - value: 150
+        bnStyle: orange
+      - value: 200
+        bnStyle: red
+      - value: 250
+        bnStyle: magenta
+  - type: horizontal-stack
+    cards:
+    - type: custom:stack-in-card
+      cards:
+      - type: custom:button-card
+        name: PM1.0 (ug/m3)
+      - entity: sensor.purpleair_outdoor_pm_1_0_mass_a
+        title: 'Sensor: A'
+        scale: 20px
+        type: custom:bignumber-card
+        hideunit: true
+        noneCardClass: custom:bignumber-card
+      - entity: sensor.purpleair_outdoor_pm_1_0_mass_b
+        title: 'Sensor: B'
+        scale: 20px
+        type: custom:bignumber-card
+        hideunit: true
+        noneCardClass: custom:bignumber-card
+    - type: custom:stack-in-card
+      cards:
+      - type: custom:button-card
+        name: PM2.5 (ug/m3)
+      - entity: sensor.purpleair_outdoor_pm_2_5_mass_a
+        title: 'Sensor: A'
+        scale: 20px
+        type: custom:bignumber-card
+        hideunit: true
+        noneCardClass: custom:bignumber-card
+      - entity: sensor.purpleair_outdoor_pm_2_5_mass_b
+        title: 'Sensor: B'
+        scale: 20px
+        type: custom:bignumber-card
+        hideunit: true
+        noneCardClass: custom:bignumber-card
+    - type: custom:stack-in-card
+      cards:
+      - type: custom:button-card
+        name: PM10 (ug/m3)
+      - entity: sensor.purpleair_outdoor_pm_10_mass_a
+        title: 'Sensor: A'
+        scale: 20px
+        type: custom:bignumber-card
+        hideunit: true
+        noneCardClass: custom:bignumber-card
+      - entity: sensor.purpleair_outdoor_pm_10_mass_b
+        title: 'Sensor: B'
+        scale: 20px
+        type: custom:bignumber-card
+        hideunit: true
+        noneCardClass: custom:bignumber-card

@@ -10,18 +10,27 @@ custom_cards:
   better-moment-card:
     repository: ibz0q/better-moment-card
     installed_version: '2025.01.11'
+  bignumber-card:
+    repository: custom-cards/bignumber-card
+    installed_version: 0.0.6
+  button-card:
+    repository: custom-cards/button-card
+    installed_version: v7.0.1
   clock-weather-card:
     repository: pkissling/clock-weather-card
     installed_version: v2.9.5
   hourly-weather:
     repository: decompil3d/lovelace-hourly-weather
     installed_version: 7.1.1
-  mushroom-entity-card:
+  mushroom:
     repository: piitaya/lovelace-mushroom
     installed_version: v5.2.3
-  mushroom-template-badge:
-    repository: piitaya/lovelace-mushroom
-    installed_version: v5.2.3
-  mushroom-template-card:
-    repository: piitaya/lovelace-mushroom
-    installed_version: v5.2.3
+  simple-thermostat:
+    repository: Wheemer/simple-thermostat
+    installed_version: v4.5.0
+  stack-in-card:
+    repository: custom-cards/stack-in-card
+    installed_version: 0.2.0
+  valetudo-map-card:
+    repository: Hypfer/lovelace-valetudo-map-card
+    installed_version: v2023.04.0

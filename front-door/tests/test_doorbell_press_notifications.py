@@ -75,8 +75,8 @@ async def test_talk_and_tap_open_the_cameras_view_in_the_app(
     [notification] = recipient.notifications
     action = talk_action(notification)
     assert action["action"] == "URI"
-    assert action["uri"] == "/lovelace/cameras"
-    assert notification["data"]["url"] == "/lovelace/cameras"
+    assert action["uri"] == "/our-home/cameras"
+    assert notification["data"]["url"] == "/our-home/cameras"
 
 
 @pytest.mark.parametrize(

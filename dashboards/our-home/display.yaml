@@ -1,11 +1,96 @@
-# Our Home is assembled from one source file per view.
-title: Our Home
-url_path: lovelace
+title: ''
+url_path: our-home
 views:
-  - ../../front-door/dashboards/front_door_view.yaml
+- views/conditions.yaml
+- views/lighting.yaml
+- views/climate.yaml
+- views/cameras.yaml
+- views/devices.yaml
+- views/tv.yaml
+- views/front-door.yaml
 prerequisites:
   entities:
-    - camera.example
-    - input_datetime.snooze_phone_a
-    - input_datetime.snooze_phone_b
+  - binary_sensor.2nd_floor_multisensor_motion_detection
+  - binary_sensor.basement_multisensor_motion_detection
+  - binary_sensor.example_doorbell_visitor
+  - binary_sensor.smoke_bridge_co
+  - binary_sensor.smoke_bridge_smoke
+  - binary_sensor.water_heater_leak_sensor_water_leak_detected
+  - calendar.appointments
+  - calendar.family
+  - camera.example
+  - climate.thermostat
+  - cover.example_garage_door
+  - input_datetime.snooze_phone_a
+  - input_datetime.snooze_phone_b
+  - input_select.ui_frontend_greeting
+  - light.basement_entry
+  - light.basement_stairwell
+  - light.breezeway
+  - light.cabinet_spot
+  - light.child_a_bedroom
+  - light.child_b_bedroom
+  - light.coffee_bar_spot
+  - light.deck_recessed_lights
+  - light.deck_stair_lights
+  - light.dining_room
+  - light.entry_stairwell
+  - light.front_exterior
+  - light.guest_hallway_sconces
+  - light.kitchen_island_lights
+  - light.kitchenette
+  - light.living_room
+  - light.loft
+  - light.master_bedroom
+  - light.office
+  - light.office_task
+  - light.playroom
+  - light.theater
+  - light.theater_sconces
+  - light.wled
+  - lock.front_door
+  - lock.garage_breezeway_door
+  - lock.kitchen_side_door
+  - media_player.bravia_4k_ur3
+  - media_player.living_room_tv
+  - media_player.shield_android_tv
+  - media_player.shield_android_tv_2
+  - media_player.shield_masterbedroom
+  - number.wled_intensity
+  - person.example_a
+  - person.example_b
+  - select.wled_preset
+  - sensor.2nd_floor_multisensor_air_temperature
+  - sensor.2nd_floor_multisensor_battery_level
+  - sensor.2nd_floor_multisensor_humidity
+  - sensor.2nd_floor_multisensor_illuminance
+  - sensor.basement_multisensor_air_temperature
+  - sensor.basement_multisensor_battery_level
+  - sensor.basement_multisensor_humidity
+  - sensor.basement_multisensor_illuminance
+  - sensor.example_outdoor_feels_like
+  - sensor.example_outdoor_humidity
+  - sensor.example_outdoor_temperature
+  - sensor.example_outdoor_wind_speed
+  - sensor.home_humidity
+  - sensor.home_temperature
+  - sensor.inlet_fan_duty_cycle
+  - sensor.outlet_fan_duty_cycle
+  - sensor.purpleair_outdoor_aqi_2_5_120s_moving_average_a
+  - sensor.purpleair_outdoor_aqi_2_5_120s_moving_average_b
+  - sensor.purpleair_outdoor_pm_10_mass_a
+  - sensor.purpleair_outdoor_pm_10_mass_b
+  - sensor.purpleair_outdoor_pm_1_0_mass_a
+  - sensor.purpleair_outdoor_pm_1_0_mass_b
+  - sensor.purpleair_outdoor_pm_2_5_mass_a
+  - sensor.purpleair_outdoor_pm_2_5_mass_b
+  - sensor.rack_front
+  - sensor.rack_inlet_fan_air
+  - sensor.rack_interior
+  - sensor.rack_outlet_fan_air
+  - switch.kitchen
+  - switch.kitchen_undercabinet
+  - switch.north_deck
+  - vacuum.example_main_floor
+  - weather.openweathermap
 support_packages: []

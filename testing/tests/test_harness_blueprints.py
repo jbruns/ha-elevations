@@ -34,4 +34,4 @@ async def test_a_blueprint_loads_from_its_repo_path(
 
 def test_a_path_outside_any_contexts_blueprints_is_refused() -> None:
     with pytest.raises(ValueError, match="not a blueprint"):
-        blueprint_automation("front-door/dashboards/front_door_view.yaml", {})
+        blueprint_automation("dashboards/our-home/views/front-door.yaml", {})

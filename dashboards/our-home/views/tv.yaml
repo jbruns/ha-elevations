@@ -1,0 +1,39 @@
+title: TV
+path: tv
+badges: []
+cards:
+- type: custom:mushroom-media-player-card
+  name: Living Room
+  media_controls:
+  - on_off
+  - play_pause_stop
+  volume_controls:
+  - volume_set
+  - volume_buttons
+  use_media_info: false
+  entity: media_player.living_room_tv
+  fill_container: false
+- type: custom:mushroom-media-player-card
+  entity: media_player.shield_android_tv
+  name: Guest Bedroom
+  media_controls:
+  - on_off
+  - play_pause_stop
+- type: custom:mushroom-media-player-card
+  entity: media_player.shield_android_tv_2
+  name: Theater
+  media_controls:
+  - on_off
+  - play_pause_stop
+- type: custom:mushroom-media-player-card
+  entity: media_player.shield_masterbedroom
+  name: Master Bedroom
+  media_controls:
+  - on_off
+  - play_pause_stop
+- type: custom:mushroom-media-player-card
+  entity: media_player.bravia_4k_ur3
+  media_controls:
+  - on_off
+  - play_pause_stop
+  name: Fitness TV
