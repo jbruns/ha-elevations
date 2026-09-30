@@ -1,0 +1,99 @@
+blueprint:
+  name: Exterior Lights
+  description: >-
+    Keeps the Exterior Lights on from dusk to dawn using the sun elevation.
+    Turns the target lights and switches on when elevation falls below the dusk
+    threshold, and off when elevation rises above the dawn threshold. Uses
+    entity triggers, not device triggers. See lighting/README.md in
+    jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/lighting/blueprints/automation/lighting_exterior_lights.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    exterior_lights:
+      name: Exterior Lights
+      description: The lights and switches to keep on from dusk to dawn.
+      selector:
+        target:
+          entity:
+            - domain: light
+            - domain: switch
+    on_below:
+      name: Dusk elevation
+      description: Turn on when sun.sun elevation falls below this many degrees.
+      default: 1.5
+      selector:
+        number:
+          min: -10
+          max: 10
+          step: 0.1
+          unit_of_measurement: °
+          mode: box
+    off_above:
+      name: Dawn elevation
+      description: Turn off when sun.sun elevation rises above this many degrees.
+      default: 1
+      selector:
+        number:
+          min: -10
+          max: 10
+          step: 0.1
+          unit_of_measurement: °
+          mode: box
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: numeric_state
+    id: dusk
+    entity_id: sun.sun
+    attribute: elevation
+    below: !input on_below
+  - trigger: numeric_state
+    id: dawn
+    entity_id: sun.sun
+    attribute: elevation
+    above: !input off_above
+  - trigger: homeassistant
+    id: startup
+    event: start
+
+variables:
+  on_below: !input on_below
+  off_above: !input off_above
+  elevation: "{{ state_attr('sun.sun', 'elevation') }}"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: dusk
+        sequence:
+          - action: homeassistant.turn_on
+            target: !input exterior_lights
+      - conditions:
+          - condition: trigger
+            id: dawn
+        sequence:
+          - action: homeassistant.turn_off
+            target: !input exterior_lights
+      - conditions:
+          - condition: trigger
+            id: startup
+          - condition: template
+            value_template: >-
+              {{ is_number(elevation) and (elevation | float) < (off_above | float) }}
+        sequence:
+          - action: homeassistant.turn_on
+            target: !input exterior_lights
+      - conditions:
+          - condition: trigger
+            id: startup
+          - condition: template
+            value_template: >-
+              {{ is_number(elevation) and (elevation | float) > (on_below | float) }}
+        sequence:
+          - action: homeassistant.turn_off
+            target: !input exterior_lights

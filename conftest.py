@@ -10,4 +10,5 @@ pytest_plugins = [
     "testing.weather",
     "testing.thermostat",
     "testing.lights",
+    "testing.sun",
 ]
