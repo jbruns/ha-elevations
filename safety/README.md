@@ -11,29 +11,31 @@ Every entity and every number is an input (ADR 0004).
 
 ## Hazard Notifications
 
-`blueprints/automation/safety_hazard_notifications.yaml` watches one binary sensor for one Hazard, such as a water leak, smoke, carbon monoxide or a freezer door left open. Create one automation from it for each Hazard.
+`blueprints/automation/safety_hazard_notifications.yaml` watches one binary sensor for one Hazard, such as a freezer door left open, or the Immediate Hazards role for smoke, carbon monoxide and leaks. Create one automation from it for each non-immediate Hazard, and one automation from it for the Immediate Hazards role.
 
 - **Hazard when the sensor is**: `on` by default. Some integrations report a contact the other way round, such as a freezer door sensor that is `on` when the door is closed: for those, choose `off`.
-- **Hazard**: once the sensor has been in the Hazard state for *held for*, every Recipient gets the Notification with its title and message, for example **Water leak**: *Leak at the kitchen sink*. *Held for* is 0 by default, so the warning is immediate; a sensor that leaves the Hazard state sooner sends nothing. The sensor changing into the Hazard state from `unavailable` or `unknown` is a Hazard too, even during a Hazard: it warns again, with the same sound.
+- **Hazard**: once the sensor has been in the Hazard state for *held for*, every Recipient gets the Notification with its title and message, for example **Water leak**: *Leak at the kitchen sink*. *Held for* is 0 by default, so the warning is immediate; a sensor that leaves the Hazard state sooner sends nothing. The sensor changing into the Hazard state from `unavailable` or `unknown` is a Hazard too, even during a Hazard: it warns again, with the same sound. When the sensor is the Immediate Hazards role, the Notification message names the member sensor that reported.
 - **Critical**: on by default. The Hazard plays an iOS critical sound, at full volume even in silent mode and through Focus modes. Turned off, it plays the normal sound.
 - **Cleared**: when the sensor reports the opposite state after a Hazard, **\<Title\> cleared**, with the same message, replaces the Hazard's Notification in place, silently. The sensor dropping out to `unavailable` or `unknown` doesn't clear the Hazard. There is no clear without a Hazard.
 - **Starting Home Assistant**: a sensor already in the Hazard state when Home Assistant starts, or when the automation is created or reloaded, sends nothing, unless it came back from `unavailable` or `unknown`. A Hazard under way when Home Assistant restarts, or automations reload, gets no cleared Notification; the Hazard Notification stays on the phones until the next Hazard from that automation replaces it.
+
+### Immediate Hazards role
+
+Create one binary sensor group helper named **Immediate Hazards** for the Immediate Hazards. In Home Assistant, go to Settings → Devices & Services → Helpers → Create Helper → Group → Binary sensor group. Add the smoke, carbon monoxide and leak sensors that are dangerous as soon as they report. Each member must read `on` while hazardous. Hazard Notifications can use this one role, so adding a new leak, smoke or carbon monoxide sensor means editing the helper only.
 
 ### Set up
 
 1. Check that every Recipient's phone has the Home Assistant Companion app, so it is a `mobile_app` device. For critical sounds, allow Critical Alerts for the app on each iPhone: Settings → Notifications → Home Assistant.
 2. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
-3. Create an automation from it for each Hazard. Give it the sensor, whether the Hazard is `on` or `off`, how long it must be held, the title and message, whether it is critical, and the Recipients.
-4. Turn off any other automation that warns about the same sensor.
+3. Create one automation from it for the Immediate Hazards role. Give it the role sensor, `on`, held for 0, a title and message, critical on, and the Recipients.
+4. Create an automation from it for each non-immediate Hazard, such as a freezer door left open. Give it the sensor, whether the Hazard is `on` or `off`, how long it must be held, the title and message, whether it is critical, and the Recipients.
+5. Turn off any other automation that warns about the same sensor.
 
 For example:
 
 | Hazard | Hazard when | Held for | Title / message | Critical |
 | --- | --- | --- | --- | --- |
-| Kitchen sink leak | `on` | 0 | Water leak / Leak at the kitchen sink | yes |
-| Water heater leak | `on` | 0 | Water leak / Leak at the water heater | yes |
-| Smoke | `on` | 0 | Smoke / Smoke detected | yes |
-| Carbon monoxide | `on` | 0 | Carbon monoxide / Carbon monoxide detected | yes |
+| Immediate Hazards role | `on` | 0 | Immediate hazard / Hazard reported | yes |
 | Freezer door | `off` (sensor is `on` when closed) | 10 min | Freezer door open / The freezer door has been open for 10 minutes | no |
 
 ### Check it works
@@ -41,6 +43,14 @@ For example:
 - Wet a leak sensor, or open the freezer door for longer than *held for*. The Hazard arrives on every Recipient's phone, with a critical sound if set.
 - Dry the sensor, or close the door. **\<Title\> cleared** replaces it without a sound.
 - The automation's traces show each run. A run waiting at the `wait_template` is a Hazard waiting to clear.
+
+### Cutover
+
+1. Back up Home Assistant.
+2. Create the Immediate Hazards binary sensor group helper and add the existing leak, smoke and carbon monoxide sensors to it.
+3. Import the updated Hazard Notifications blueprint.
+4. Create or edit one Hazard Notifications automation so **Immediate Hazards** is the Sensor input, Hazard when is `on`, Held for is 0, Critical is on, and the Recipients are unchanged.
+5. Disable the previous immediate leak, smoke and carbon monoxide Hazard Notifications instances after verifying the role automation sends and clears Notifications that name the member sensor. Keep delayed Hazards, such as the freezer door left open, as their own instances.
 
 ## Limit Breach Notifications
 

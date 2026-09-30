@@ -1,0 +1,38 @@
+# Optional Dashboards package. Replace weather.example with this home's weather entity.
+template:
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: 0
+    actions:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.example
+        data:
+          type: hourly
+        response_variable: hourly_forecast
+    sensor:
+      - name: Dashboards Hourly Forecast
+        unique_id: dashboards_hourly_forecast
+        state: "{{ now().isoformat() }}"
+        attributes:
+          forecast: "{{ hourly_forecast['weather.example']['forecast'] }}"
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        hours: /1
+    actions:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.example
+        data:
+          type: daily
+        response_variable: daily_forecast
+    sensor:
+      - name: Dashboards Daily Forecast
+        unique_id: dashboards_daily_forecast
+        state: "{{ now().isoformat() }}"
+        attributes:
+          forecast: "{{ daily_forecast['weather.example']['forecast'] }}"

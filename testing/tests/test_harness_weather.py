@@ -1,11 +1,11 @@
-"""A weather entity answers weather.get_forecasts with the hours a test sets (ADR 0005)."""
+"""A weather entity answers weather.get_forecasts with the periods a test sets (ADR 0005)."""
 
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant
 
 from testing.clock import Clock
-from testing.weather import Hour, Weather
+from testing.weather import Day, Hour, Weather
 
 
 async def hourly(hass: HomeAssistant, weather: Weather) -> list[dict]:
@@ -13,6 +13,17 @@ async def hourly(hass: HomeAssistant, weather: Weather) -> list[dict]:
         "weather",
         "get_forecasts",
         {"entity_id": weather.entity_id, "type": "hourly"},
+        blocking=True,
+        return_response=True,
+    )
+    return response[weather.entity_id]["forecast"]
+
+
+async def daily(hass: HomeAssistant, weather: Weather) -> list[dict]:
+    response = await hass.services.async_call(
+        "weather",
+        "get_forecasts",
+        {"entity_id": weather.entity_id, "type": "daily"},
         blocking=True,
         return_response=True,
     )
@@ -69,3 +80,30 @@ async def test_the_forecast_starts_at_the_current_hour_as_time_passes(
         "2026-06-01T23:00:00+00:00",
         "2026-06-02T00:00:00+00:00",
     ]
+
+
+async def test_get_forecasts_answers_each_days_values(
+    hass: HomeAssistant, clock: Clock, weather: Weather
+) -> None:
+    await clock.move_to(datetime(2026, 6, 1, 14, 20))
+    await weather.set_daily(
+        [
+            Day(temperature=24, precipitation_probability=10, precipitation=0),
+            Day(temperature=21, precipitation_probability=80, precipitation=2.5),
+        ]
+    )
+
+    first, second = await daily(hass, weather)
+
+    assert first == {
+        "datetime": "2026-06-01T00:00:00+00:00",
+        "temperature": 24,
+        "precipitation_probability": 10,
+        "precipitation": 0,
+    }
+    assert second == {
+        "datetime": "2026-06-02T00:00:00+00:00",
+        "temperature": 21,
+        "precipitation_probability": 80,
+        "precipitation": 2.5,
+    }

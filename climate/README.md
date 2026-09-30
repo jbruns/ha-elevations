@@ -76,13 +76,17 @@ The Band replaces the previous automation's separate range table: now only the c
 
 While the Door Pause helper is on, the Comfort Policy changes nothing. When the Door Pause ends it applies the Comfort Target, if someone is home.
 
+### Exterior Doors role
+
+Create one binary sensor group helper named **Exterior Doors** for the Exterior Doors. In Home Assistant, go to Settings → Devices & Services → Helpers → Create Helper → Group → Binary sensor group. Add every Exterior Door sensor; each member must read `on` while open. Door Pause can use this one role instead of listing every door sensor, so adding a new Exterior Door means editing the helper only.
+
 ### Set up
 
 1. Create the helpers, in Settings → Devices & Services → Helpers → Create Helper:
    - One Toggle helper for the Door Pause. If you use the Comfort Policy, use the same helper for both.
    - One Dropdown helper for the saved mode, with exactly the options `heat_cool`, `heat`, `cool` and `off`. Only the blueprint changes it.
 2. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
-3. Create an automation from it. Pick every Exterior Door's sensor, the thermostat, the two helpers and the Recipients. Change the open and closed durations to suit your home.
+3. Create an automation from it. Pick the Exterior Doors role, the thermostat, the two helpers and the Recipients. Existing automations that list the door sensors directly still work, but the role keeps the list in one place. Change the open and closed durations to suit your home.
 4. Turn off any other automation that turns the thermostat off for an open door.
 
 ### Check it works
@@ -90,6 +94,14 @@ While the Door Pause helper is on, the Comfort Policy changes nothing. When the 
 - Open a door for 5 minutes. The thermostat turns off, and HVAC paused arrives naming the door.
 - Close it. After 5 minutes the thermostat returns to its mode, and the Notification changes to HVAC resumed without a sound.
 - The automation's traces show each run. A run that ended at "Nothing to change" found no Door Pause to start or end.
+
+### Cutover
+
+1. Back up Home Assistant.
+2. Create the Exterior Doors binary sensor group helper and add the existing exterior door sensors to it.
+3. Import the updated Door Pause blueprint.
+4. Edit the Door Pause automation so **Exterior Doors** is the Exterior Doors input. The previous per-door list may be removed from that input.
+5. Test with one door: it pauses after the open duration, names the member door, and resumes after the closed duration.
 
 ## Ventilation Recommendation
 

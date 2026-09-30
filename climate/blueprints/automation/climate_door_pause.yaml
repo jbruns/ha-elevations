@@ -14,7 +14,11 @@ blueprint:
   input:
     exterior_doors:
       name: Exterior Doors
-      description: The doors and sliders to the outdoors. Each sensor reads on while open.
+      description: >-
+        The Exterior Doors role, usually a binary sensor group helper whose
+        members are the doors and sliders to the outdoors. Existing
+        automations may keep listing the door sensors here directly. Each
+        member sensor reads on while open.
       selector:
         entity:
           multiple: true
@@ -93,7 +97,10 @@ triggers:
     id: start
 
 variables:
-  doors: !input exterior_doors
+  doors_input: !input exterior_doors
+  doors: >-
+    {%- set expanded = expand(doors_input) | map(attribute='entity_id') | list -%}
+    {{ expanded if expanded else doors_input }}
   thermostat_entity: !input thermostat
   door_pause_entity: !input door_pause
   saved_mode_entity: !input saved_mode
@@ -146,7 +153,7 @@ actions:
   - variables:
       mode: "{{ states(thermostat_entity) }}"
       paused: "{{ is_state(door_pause_entity, 'on') }}"
-      open_doors: "{{ doors | select('is_state', 'on') | list }}"
+      open_doors: "{{ expand(doors) | selectattr('state', 'eq', 'on') | map(attribute='entity_id') | list }}"
       # Durations are measured from each door's last change, with a second's
       # slack because a for: trigger fires on the dot.
       start_pause: >-

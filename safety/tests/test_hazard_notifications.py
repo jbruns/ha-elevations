@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
 
 from testing.automations import async_setup_automations, blueprint_automation
 from testing.clock import Clock
@@ -18,6 +19,8 @@ from testing.sensors import Sensors
 
 BLUEPRINT = "safety/blueprints/automation/safety_hazard_notifications.yaml"
 SENSOR = "binary_sensor.example_leak"
+ROLE = "binary_sensor.example_immediate_hazards"
+SMOKE = "binary_sensor.example_smoke"
 CRITICAL = {
     "sound": {"name": "default", "critical": 1, "volume": 1.0},
     "interruption-level": "critical",
@@ -57,6 +60,23 @@ class Watch:
     async def set(self, state: str) -> None:
         await self.sensors.set(SENSOR, state)
         await self.clock.let_runs_start()
+
+    async def immediate_hazards_role(self, hazards: list[str] | None = None) -> str:
+        assert await async_setup_component(
+            self.hass,
+            "binary_sensor",
+            {
+                "binary_sensor": [
+                    {
+                        "platform": "group",
+                        "name": "Example Immediate Hazards",
+                        "entities": hazards or [SENSOR, SMOKE],
+                    }
+                ]
+            },
+        )
+        await self.hass.async_block_till_done()
+        return ROLE
 
     async def wait(self, minutes: float) -> None:
         """Let time pass, without waiting for a run that waits for the Hazard to clear."""
@@ -142,6 +162,38 @@ async def test_a_hazard_that_ends_before_the_duration_is_not_notified(watch: Wat
     await watch.wait(10)
 
     assert watch.notifications == []
+
+
+async def test_the_immediate_hazards_role_names_the_member_that_reported(
+    watch: Watch, sensors: Sensors
+) -> None:
+    await sensors.set(SMOKE, "off", friendly_name="Smoke")
+    await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
+    role = await watch.immediate_hazards_role()
+    await watch.start(sensor=role, title="Immediate hazard", message="Hazard reported")
+
+    await sensors.set(SMOKE, "on", friendly_name="Smoke")
+    await watch.clock.let_runs_start()
+
+    assert watch.notifications == [("Immediate hazard", "Hazard reported: Smoke")]
+
+
+async def test_adding_a_member_to_the_immediate_hazards_role_needs_no_automation_change(
+    watch: Watch, sensors: Sensors
+) -> None:
+    co = "binary_sensor.example_carbon_monoxide"
+    await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
+    await sensors.set(SMOKE, "off", friendly_name="Smoke")
+    await sensors.set(co, "off", friendly_name="Carbon Monoxide")
+    role = await watch.immediate_hazards_role([SENSOR, SMOKE, co])
+    await watch.start(sensor=role, title="Immediate hazard", message="Hazard reported")
+
+    await sensors.set(co, "on", friendly_name="Carbon Monoxide")
+    await watch.clock.let_runs_start()
+
+    assert watch.notifications == [
+        ("Immediate hazard", "Hazard reported: Carbon Monoxide")
+    ]
 
 
 # Critical

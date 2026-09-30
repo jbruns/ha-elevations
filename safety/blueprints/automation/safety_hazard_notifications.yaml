@@ -14,7 +14,11 @@ blueprint:
   input:
     sensor:
       name: Sensor
-      description: The binary sensor that reports the Hazard.
+      description: >-
+        The binary sensor that reports the Hazard. For Immediate Hazards, use
+        the Immediate Hazards role: a binary sensor group helper whose members
+        are the smoke, carbon monoxide and leak sensors. Existing automations
+        may keep using one sensor directly.
       selector:
         entity:
           filter:
@@ -86,41 +90,87 @@ triggers:
 
 variables:
   sensor: !input sensor
+  sensor_entities: >-
+    {%- set expanded = expand(sensor) | map(attribute='entity_id') | list -%}
+    {{ expanded if expanded else [sensor] }}
+  role_sensor: "{{ state_attr(sensor, 'entity_id') is not none }}"
   hazard_state: !input hazard_state
   safe_state: "{{ 'off' if hazard_state == 'on' else 'on' }}"
   recipients: !input recipients
   title: !input title
   message: !input message
   critical: !input critical
-  # The Hazard and its clearing are one Notification, updated in place.
-  tag: "safety-hazard-{{ this.entity_id }}"
 
 actions:
+  - variables:
+      notified: []
   - repeat:
-      for_each: "{{ recipients }}"
+      while: "{{ true }}"
       sequence:
-        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
-          data:
-            title: "{{ title }}"
-            message: "{{ message }}"
-            data:
-              tag: "{{ tag }}"
-              push: >-
-                {{ {'sound': {'name': 'default', 'critical': 1, 'volume': 1.0},
-                    'interruption-level': 'critical'} if critical
-                   else {'sound': 'default'} }}
-  # Only the sensor reporting safe again clears the Hazard: unavailable or
-  # unknown says nothing about whether it is over.
-  - wait_template: "{{ is_state(sensor, safe_state) }}"
-  - repeat:
-      for_each: "{{ recipients }}"
-      sequence:
-        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
-          data:
-            title: "{{ title }} cleared"
-            message: "{{ message }}"
-            data:
-              tag: "{{ tag }}"
-              push:
-                sound: none
-                interruption-level: passive
+        - variables:
+            active_hazards: >-
+              {{ sensor_entities | select('is_state', hazard_state) | list }}
+            new_hazards: "{{ active_hazards | reject('in', notified) | list }}"
+        - repeat:
+            for_each: "{{ new_hazards }}"
+            sequence:
+              - variables:
+                  hazard_entity: "{{ repeat.item }}"
+                  hazard_name: >-
+                    {{ state_attr(hazard_entity, 'friendly_name') or hazard_entity }}
+                  notification_message: >-
+                    {{ message ~ ': ' ~ hazard_name if role_sensor else message }}
+                  # The Hazard and its clearing are one Notification, updated in place.
+                  tag: "safety-hazard-{{ hazard_entity }}"
+              - repeat:
+                  for_each: "{{ recipients }}"
+                  sequence:
+                    - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                      data:
+                        title: "{{ title }}"
+                        message: "{{ notification_message }}"
+                        data:
+                          tag: "{{ tag }}"
+                          push: >-
+                            {{ {'sound': {'name': 'default', 'critical': 1, 'volume': 1.0},
+                                'interruption-level': 'critical'} if critical
+                               else {'sound': 'default'} }}
+        - variables:
+            notified: "{{ (notified + new_hazards) | unique | list }}"
+        # Only a sensor reporting safe again clears its Hazard: unavailable or
+        # unknown says nothing about whether it is over.
+        - wait_template: >-
+            {%- set active = sensor_entities | select('is_state', hazard_state) | list -%}
+            {{ active | sort != active_hazards | sort
+               or notified | select('is_state', safe_state) | list | length > 0 }}
+        - variables:
+            cleared_hazards: "{{ notified | select('is_state', safe_state) | list }}"
+        - repeat:
+            for_each: "{{ cleared_hazards }}"
+            sequence:
+              - variables:
+                  hazard_entity: "{{ repeat.item }}"
+                  hazard_name: >-
+                    {{ state_attr(hazard_entity, 'friendly_name') or hazard_entity }}
+                  notification_message: >-
+                    {{ message ~ ': ' ~ hazard_name if role_sensor else message }}
+                  tag: "safety-hazard-{{ hazard_entity }}"
+              - repeat:
+                  for_each: "{{ recipients }}"
+                  sequence:
+                    - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                      data:
+                        title: "{{ title }} cleared"
+                        message: "{{ notification_message }}"
+                        data:
+                          tag: "{{ tag }}"
+                          push:
+                            sound: none
+                            interruption-level: passive
+        - variables:
+            notified: "{{ notified | reject('in', cleared_hazards) | list }}"
+        - if: >-
+            {{ notified | length == 0
+               and sensor_entities | select('is_state', hazard_state) | list | length == 0 }}
+          then:
+            - stop: Hazard cleared
