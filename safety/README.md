@@ -50,7 +50,7 @@ For example:
 2. Create the Immediate Hazards binary sensor group helper and add the existing leak, smoke and carbon monoxide sensors to it.
 3. Import the updated Hazard Notifications blueprint.
 4. Create or edit one Hazard Notifications automation so **Immediate Hazards** is the Sensor input, Hazard when is `on`, Held for is 0, Critical is on, and the Recipients are unchanged.
-5. Disable the previous immediate leak, smoke and carbon monoxide Hazard Notifications instances after verifying the role automation sends and clears Notifications that name the member sensor. Keep delayed Hazards, such as the freezer door left open, as their own instances.
+5. Disable the previous immediate leak, smoke and carbon monoxide Hazard Notifications instances after verifying the role automation sends and clears Notifications that name the member sensor. The four Immediate Hazard instances collapse into one automation with one shared title and message; the member sensor's name is appended to the message, so per-Hazard wording changes. Keep delayed Hazards, such as the freezer door left open, as their own instances.
 
 ## Limit Breach Notifications
 

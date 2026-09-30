@@ -21,6 +21,7 @@ BLUEPRINT = "safety/blueprints/automation/safety_hazard_notifications.yaml"
 SENSOR = "binary_sensor.example_leak"
 ROLE = "binary_sensor.example_immediate_hazards"
 SMOKE = "binary_sensor.example_smoke"
+CO = "binary_sensor.example_carbon_monoxide"
 CRITICAL = {
     "sound": {"name": "default", "critical": 1, "volume": 1.0},
     "interruption-level": "critical",
@@ -181,18 +182,91 @@ async def test_the_immediate_hazards_role_names_the_member_that_reported(
 async def test_adding_a_member_to_the_immediate_hazards_role_needs_no_automation_change(
     watch: Watch, sensors: Sensors
 ) -> None:
-    co = "binary_sensor.example_carbon_monoxide"
     await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
     await sensors.set(SMOKE, "off", friendly_name="Smoke")
-    await sensors.set(co, "off", friendly_name="Carbon Monoxide")
-    role = await watch.immediate_hazards_role([SENSOR, SMOKE, co])
+    await sensors.set(CO, "off", friendly_name="Carbon Monoxide")
+    role = await watch.immediate_hazards_role([SENSOR, SMOKE, CO])
     await watch.start(sensor=role, title="Immediate hazard", message="Hazard reported")
 
-    await sensors.set(co, "on", friendly_name="Carbon Monoxide")
+    await sensors.set(CO, "on", friendly_name="Carbon Monoxide")
     await watch.clock.let_runs_start()
 
     assert watch.notifications == [
         ("Immediate hazard", "Hazard reported: Carbon Monoxide")
+    ]
+
+
+async def test_another_immediate_hazard_member_notifies_while_the_role_is_already_on(
+    watch: Watch, sensors: Sensors
+) -> None:
+    await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
+    await sensors.set(SMOKE, "off", friendly_name="Smoke")
+    role = await watch.immediate_hazards_role()
+    await watch.start(sensor=role, title="Immediate hazard", message="Hazard reported")
+
+    await sensors.set(SENSOR, "on", friendly_name="Utility Leak")
+    await watch.clock.let_runs_start()
+    await sensors.set(SMOKE, "on", friendly_name="Smoke")
+    await watch.clock.let_runs_start()
+
+    assert watch.notifications == [
+        ("Immediate hazard", "Hazard reported: Utility Leak"),
+        ("Immediate hazard", "Hazard reported: Smoke"),
+    ]
+
+
+async def test_one_immediate_hazard_member_clears_while_another_stays_active(
+    watch: Watch, sensors: Sensors
+) -> None:
+    await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
+    await sensors.set(SMOKE, "off", friendly_name="Smoke")
+    role = await watch.immediate_hazards_role()
+    await watch.start(sensor=role, title="Immediate hazard", message="Hazard reported")
+    await sensors.set(SENSOR, "on", friendly_name="Utility Leak")
+    await watch.clock.let_runs_start()
+    await sensors.set(SMOKE, "on", friendly_name="Smoke")
+    await watch.clock.let_runs_start()
+
+    await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
+    await watch.clock.let_runs_start()
+    await watch.wait(1)
+    await sensors.set(SMOKE, "off", friendly_name="Smoke")
+    await watch.clock.let_runs_start()
+
+    leak, smoke, leak_cleared, smoke_cleared = watch.recipient.notifications
+    assert watch.notifications == [
+        ("Immediate hazard", "Hazard reported: Utility Leak"),
+        ("Immediate hazard", "Hazard reported: Smoke"),
+        ("Immediate hazard cleared", "Hazard reported: Utility Leak"),
+        ("Immediate hazard cleared", "Hazard reported: Smoke"),
+    ]
+    assert leak_cleared["data"]["tag"] == leak["data"]["tag"]
+    assert smoke_cleared["data"]["tag"] == smoke["data"]["tag"]
+    assert leak_cleared["data"]["tag"] != smoke_cleared["data"]["tag"]
+
+
+async def test_an_unavailable_immediate_hazard_member_does_not_clear_or_spin(
+    watch: Watch, sensors: Sensors
+) -> None:
+    await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
+    await sensors.set(SMOKE, "off", friendly_name="Smoke")
+    role = await watch.immediate_hazards_role()
+    await watch.start(sensor=role, title="Immediate hazard", message="Hazard reported")
+    await sensors.set(SENSOR, "on", friendly_name="Utility Leak")
+    await watch.clock.let_runs_start()
+
+    await sensors.set(SENSOR, "unavailable", friendly_name="Utility Leak")
+    await watch.wait(1)
+
+    assert watch.notifications == [
+        ("Immediate hazard", "Hazard reported: Utility Leak")
+    ]
+    await sensors.set(SENSOR, "off", friendly_name="Utility Leak")
+    await watch.clock.let_runs_start()
+
+    assert watch.notifications == [
+        ("Immediate hazard", "Hazard reported: Utility Leak"),
+        ("Immediate hazard cleared", "Hazard reported: Utility Leak"),
     ]
 
 
