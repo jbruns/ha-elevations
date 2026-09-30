@@ -1,0 +1,263 @@
+blueprint:
+  name: Screen Time
+  description: >-
+    Counts Screen Time for the Kids Account across every selected media player.
+    Playback is stopped outside the Viewing Window, or after the Daily Limit is
+    reached. The Viewing Window follows School Day. See family/README.md in
+    jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/family/blueprints/automation/family_screen_time.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    players:
+      name: Players
+      description: Media players where the Kids Account may play.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: media_player
+    kids_account:
+      name: Kids Account
+      icon: mdi:account-child
+      input:
+        session_user:
+          name: Session user
+          description: Attribute value that identifies the Kids Account session.
+          default: Kids
+          selector:
+            text:
+        session_user_attribute:
+          name: Session user attribute
+          description: Media player attribute that carries the session user.
+          default: app_name
+          selector:
+            text:
+    school_day:
+      name: School Day helpers
+      icon: mdi:school
+      input:
+        today_school_day:
+          name: Today's School Day helper
+          description: Toggle helper that is on when today is a School Day.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        tomorrow_school_day:
+          name: Tomorrow's School Day helper
+          description: Toggle helper that is on when tomorrow is a School Day.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+    limit:
+      name: Daily Limit
+      icon: mdi:timer-sand
+      input:
+        daily_limit:
+          name: Daily Limit helper
+          description: Number helper containing today's Screen Time limit in minutes.
+          selector:
+            entity:
+              filter:
+                domain: input_number
+        screen_time_timer:
+          name: Screen Time timer
+          description: Timer helper that counts down while the Kids Account is playing.
+          selector:
+            entity:
+              filter:
+                domain: timer
+        limit_reached:
+          name: Daily Limit reached helper
+          description: Toggle helper turned on when today's Daily Limit has been used.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+    windows:
+      name: Viewing Windows
+      icon: mdi:clock-outline
+      input:
+        day_window_start:
+          name: Day window start
+          default: "08:00:00"
+          selector:
+            time:
+        day_window_end:
+          name: Day window end
+          default: "20:00:00"
+          selector:
+            time:
+        evening_window_start:
+          name: Evening window start
+          default: "17:00:00"
+          selector:
+            time:
+        evening_window_end:
+          name: Evening window end
+          default: "20:00:00"
+          selector:
+            time:
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input players
+    to: "playing"
+    id: playing
+  - trigger: state
+    entity_id: !input players
+    from: "playing"
+    id: stopped
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input screen_time_timer
+    id: daily_limit_reached
+  - trigger: time
+    at: !input day_window_end
+    id: viewing_window_end
+  - trigger: time
+    at: !input evening_window_end
+    id: viewing_window_end
+  - trigger: time
+    at: "00:00:00"
+    id: daily_reset
+
+variables:
+  player_entities: !input players
+  session_user: !input session_user
+  session_user_attribute: !input session_user_attribute
+  today_school_day_entity: !input today_school_day
+  tomorrow_school_day_entity: !input tomorrow_school_day
+  daily_limit_entity: !input daily_limit
+  screen_time_timer_entity: !input screen_time_timer
+  limit_reached_entity: !input limit_reached
+  day_window_start: !input day_window_start
+  day_window_end: !input day_window_end
+  evening_window_start: !input evening_window_start
+  evening_window_end: !input evening_window_end
+  in_viewing_window: >-
+    {% set current = now().strftime('%H:%M:%S') %}
+    {% if is_state(today_school_day_entity, 'off') %}
+      {{ day_window_start <= current < day_window_end }}
+    {% elif is_state(tomorrow_school_day_entity, 'off') %}
+      {{ evening_window_start <= current < evening_window_end }}
+    {% else %}
+      false
+    {% endif %}
+  kids_playing_players: >-
+    {% set ns = namespace(players=[]) %}
+    {% for player in player_entities %}
+      {% if is_state(player, 'playing')
+         and state_attr(player, session_user_attribute) == session_user %}
+        {% set ns.players = ns.players + [player] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.players }}
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: playing
+          - condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.get(session_user_attribute) == session_user }}
+          - condition: template
+            value_template: >-
+              {{ is_state(limit_reached_entity, 'on')
+                 or not (in_viewing_window | bool) }}
+        sequence:
+          - action: media_player.media_stop
+            target:
+              entity_id: "{{ trigger.entity_id }}"
+      - conditions:
+          - condition: trigger
+            id: playing
+          - condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.get(session_user_attribute) == session_user }}
+          - condition: template
+            value_template: "{{ in_viewing_window | bool }}"
+          - condition: template
+            value_template: "{{ not is_state(screen_time_timer_entity, 'active') }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_state(screen_time_timer_entity, 'idle') }}"
+                sequence:
+                  - action: timer.start
+                    target:
+                      entity_id: !input screen_time_timer
+                    data:
+                      duration:
+                        minutes: "{{ states(daily_limit_entity) | int(0) }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_state(screen_time_timer_entity, 'paused') }}"
+                sequence:
+                  - action: timer.start
+                    target:
+                      entity_id: !input screen_time_timer
+      - conditions:
+          - condition: trigger
+            id: stopped
+          - condition: template
+            value_template: >-
+              {{ trigger.from_state.attributes.get(session_user_attribute) == session_user }}
+          - condition: template
+            value_template: "{{ is_state(screen_time_timer_entity, 'active') }}"
+          - condition: template
+            value_template: "{{ kids_playing_players | count == 0 }}"
+        sequence:
+          - action: timer.pause
+            target:
+              entity_id: !input screen_time_timer
+      - conditions:
+          - condition: trigger
+            id: daily_limit_reached
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input limit_reached
+          - condition: template
+            value_template: "{{ kids_playing_players | count > 0 }}"
+          - action: media_player.media_stop
+            target:
+              entity_id: "{{ kids_playing_players }}"
+      - conditions:
+          - condition: trigger
+            id: viewing_window_end
+          - condition: template
+            value_template: "{{ not (in_viewing_window | bool) }}"
+          - condition: template
+            value_template: "{{ kids_playing_players | count > 0 }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ is_state(screen_time_timer_entity, 'active') }}"
+            then:
+              - action: timer.pause
+                target:
+                  entity_id: !input screen_time_timer
+          - action: media_player.media_stop
+            target:
+              entity_id: "{{ kids_playing_players }}"
+      - conditions:
+          - condition: trigger
+            id: daily_reset
+        sequence:
+          - action: timer.cancel
+            target:
+              entity_id: !input screen_time_timer
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input limit_reached

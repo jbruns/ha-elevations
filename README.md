@@ -75,6 +75,7 @@ uv run pytest
 | `clock` | frozen time to move to or advance, firing `for:`, time and time pattern triggers; `advance(..., settle=False)` while a run waits in a `wait_template` or `delay` (`testing/clock.py`) |
 | `calendars` | `calendar.example_district` and `calendar.example_closures`, whose events a test sets with `Event(...)` (`testing/calendar.py`) |
 | `lights` | light and switch Leaders plus Follower lights whose `turn_on` and `turn_off` calls are captured; tests can set their state and brightness (`testing/lights.py`) |
+| `media_players` | media players whose state and session user attributes tests can set, with `media_stop` and `media_pause` calls captured (`testing/media.py`) |
 | `testing.displays` | Display seam helpers: render a Display source, load support packages, render templates, check entity/action prerequisites, and verify `custom:` cards against `dashboards/custom-cards.yaml` (`testing/displays.py`) |
 | `sun` | `sun.sun` with an elevation attribute a test can set (`testing/sun.py`) |
 

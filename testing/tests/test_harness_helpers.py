@@ -8,17 +8,20 @@ from testing.helpers import Helpers
 async def test_helpers_are_created_by_name(hass: HomeAssistant, helpers: Helpers) -> None:
     setback = await helpers.input_boolean("Example Setback")
     mode = await helpers.input_select("Example Comfort Mode", ["Home", "Sleep", "Away"])
+    limit = await helpers.input_number("Example Limit", initial=90, maximum=480)
     since = await helpers.input_datetime("Example Last Opened")
     reason = await helpers.input_text("Example Reason")
 
-    assert [setback, mode, since, reason] == [
+    assert [setback, mode, limit, since, reason] == [
         "input_boolean.example_setback",
         "input_select.example_comfort_mode",
+        "input_number.example_limit",
         "input_datetime.example_last_opened",
         "input_text.example_reason",
     ]
     assert hass.states.get(setback).state == "off"
     assert hass.states.get(mode).attributes["options"] == ["Home", "Sleep", "Away"]
+    assert hass.states.get(limit).state == "90.0"
     assert hass.states.get(since).attributes["has_date"] is True
     assert hass.states.get(since).attributes["has_time"] is True
     assert hass.states.get(reason).state == ""

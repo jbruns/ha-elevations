@@ -20,6 +20,24 @@ class Helpers:
     async def input_boolean(self, name: str, *, initial: bool = False) -> str:
         return await self._create("input_boolean", name, initial=initial)
 
+    async def input_number(
+        self,
+        name: str,
+        *,
+        initial: int | float = 0,
+        minimum: int | float = 0,
+        maximum: int | float = 100,
+        step: int | float = 1,
+    ) -> str:
+        return await self._create(
+            "input_number",
+            name,
+            initial=initial,
+            min=minimum,
+            max=maximum,
+            step=step,
+        )
+
     async def input_select(
         self, name: str, options: list[str], *, initial: str | None = None
     ) -> str:
