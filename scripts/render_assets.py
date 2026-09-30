@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-TOKEN = re.compile(r"\{([A-Z][A-Z0-9_]+)\}")
+TOKEN = re.compile(r"(?<!\$)\{([A-Z][A-Z0-9_]+)\}")
 FRIGATE = ROOT / "front-door" / "frigate"
 
 
@@ -81,13 +81,36 @@ def _source_paths(source: Path) -> list[Path]:
     return paths
 
 
+def _render_yaml_file(path: Path, values: dict[str, str]) -> Any:
+    rendered = render_text(path.read_text(), values, source=path)
+    return yaml.safe_load(rendered)
+
+
+def _render_view(path: Path, values: dict[str, str]) -> dict[str, Any]:
+    view = _render_yaml_file(path, values)
+    if not isinstance(view, dict):
+        raise ValueError(f"{path}: expected a view mapping")
+    sections = view.get("sections")
+    if isinstance(sections, list) and all(isinstance(section, str) for section in sections):
+        view["sections"] = [_render_yaml_file((path.parent / section).resolve(), values) for section in sections]
+    return view
+
+
 def render_display(source: Path, overlay: Path | None = None) -> dict[str, Any]:
     values = load_overlay(overlay) if overlay else {}
+    source_config = yaml.safe_load(source.read_text()) or {}
+    if not isinstance(source_config, dict):
+        raise ValueError(f"{source}: expected a display source mapping")
+    display = {
+        key: value
+        for key, value in source_config.items()
+        if key not in {"views", "prerequisites", "support_packages"}
+    }
     views = []
     for path in _source_paths(source):
-        rendered = render_text(path.read_text(), values, source=path)
-        views.append(yaml.safe_load(rendered))
-    return {"views": views}
+        views.append(_render_view(path, values))
+    display["views"] = views
+    return display
 
 
 def write_display(source: Path, overlay: Path | None, output: Path) -> Path:
@@ -107,7 +130,7 @@ def _default_frigate(argv: list[str] | None = None) -> int:
         written = render_template_file(args.template, args.secrets, args.output)
     except (OSError, ValueError) as err:
         sys.exit(str(err))
-    print(f"wrote {written.relative_to(ROOT)}")
+    print(f"wrote {written.resolve().relative_to(ROOT)}")
     return 0
 
 
@@ -140,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
             written = render_template_file(args.template, args.overlay, args.output)
     except (OSError, ValueError) as err:
         sys.exit(str(err))
-    print(f"wrote {written.relative_to(ROOT)}")
+    print(f"wrote {written.resolve().relative_to(ROOT)}")
     return 0
 
 

@@ -15,3 +15,47 @@ No blueprint depends on this package (ADR 0005).
 3. Restart or reload package-backed YAML as usual for that installation.
 4. Check that `sensor.dashboards_hourly_forecast` and `sensor.dashboards_daily_forecast` have a `forecast` attribute.
 5. Remove the old `configuration.yaml` trigger-based template block that created the same forecast sensors.
+
+## Wallboard
+
+`wallboard/display.yaml` renders the Wallboard from one view file and one file per section. Copy `wallboard/wallboard.local.example.yaml` to `wallboard/wallboard.local.yaml`, fill in this home's real values, then render with:
+
+```sh
+uv run python scripts/render-asset.py display \
+  --source dashboards/wallboard/display.yaml \
+  --overlay dashboards/wallboard/wallboard.local.yaml \
+  --output dashboards/wallboard/build/wallboard.yaml
+uv run python scripts/render-asset.py template \
+  --template dashboards/wallboard/package.yaml \
+  --overlay dashboards/wallboard/wallboard.local.yaml \
+  --output dashboards/wallboard/build/package.yaml
+```
+
+`wallboard/package.yaml` is optional support for Wallboard-local roles:
+
+- **Unlocked Entries**: `binary_sensor.wallboard_any_entry_unlocked` and `sensor.wallboard_unlocked_entries`.
+- **Appliance Running**: `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`.
+
+The package uses the same overlay as the Display for the entry locks, entry labels and appliance power sensors. Nothing outside the Wallboard may read those Wallboard-local entities (ADR 0010).
+
+### Prerequisites
+
+- Safety's **Immediate Hazards** role: a binary sensor group helper that is `on` when an immediate hazard reports.
+- Climate's **Exterior Doors** role: a binary sensor group helper that is `on` when an Exterior Door is open.
+- The Wallboard support package above.
+- The shared weather forecast package above, or an equivalent hourly forecast sensor.
+- Existing household helpers for the greeting/day-of-week era of the Wallboard, including the old true/false School Day dropdown and each child's Special Class dropdown. These stay faithful here and are replaced by later tickets.
+- Calendars for family events, appointments, trips/breaks, holidays, school closures, school lunch and birthdays.
+- Todo lists for family reminders and shopping.
+- Chore/points sensors, person entities, thermostat, garage-door cover, outdoor AQI, sunrise/sunset, entry locks and appliance power sensors named in the local overlay.
+- Custom cards listed in `custom-cards.yaml`: Mushroom cards, Atomic Calendar Revive, Better Moment Card, Clock Weather Card and Hourly Weather Card.
+
+### Wallboard cutover
+
+1. Back up Home Assistant.
+2. Render `wallboard/package.yaml` with `wallboard.local.yaml`, then copy `wallboard/build/package.yaml` into Home Assistant's packages.
+3. Restart or reload package-backed YAML as usual for that installation.
+4. Check that the Wallboard-local role entities exist and update: `binary_sensor.wallboard_any_entry_unlocked`, `sensor.wallboard_unlocked_entries`, `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`.
+5. Render the Wallboard with `wallboard.local.yaml` and paste `wallboard/build/wallboard.yaml` into the storage dashboard at `dashboard-wallboard`.
+6. Verify the Wallboard shows the shared **Immediate Hazards** and **Exterior Doors** roles.
+7. Remove the old Wallboard-only hazards/open-doors groups and the old Wallboard package only after the pasted Display and new package are working.

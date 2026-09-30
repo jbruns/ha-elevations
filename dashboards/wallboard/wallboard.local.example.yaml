@@ -1,0 +1,43 @@
+# Copy to wallboard.local.yaml and replace placeholders with this home's real values.
+ADULT_A_NAME: Adult A
+ADULT_A_PERSON: person.example_adult_a
+ADULT_B_NAME: Adult B
+ADULT_B_PERSON: person.example_adult_b
+APPOINTMENTS_CALENDAR: calendar.example_appointments
+BIRTHDAYS_CALENDAR: calendar.example_birthdays
+CHILD_A_CHORES_SENSOR: sensor.example_child_a_chores
+CHILD_A_NAME: Child A
+CHILD_A_POINTS_SENSOR: sensor.example_child_a_points
+CHILD_A_SPECIAL_CLASS_DROPDOWN: input_select.example_child_a_special_class
+CHILD_B_CHORES_SENSOR: sensor.example_child_b_chores
+CHILD_B_NAME: Child B
+CHILD_B_POINTS_SENSOR: sensor.example_child_b_points
+CHILD_B_SPECIAL_CLASS_DROPDOWN: input_select.example_child_b_special_class
+CLIMATE_EXTERIOR_DOORS_ROLE: binary_sensor.example_exterior_doors
+DISHWASHER_POWER_SENSOR: sensor.example_dishwasher_power
+DRYER_POWER_SENSOR: sensor.example_dryer_power
+FAMILY_CALENDAR: calendar.example_family
+FAMILY_REMINDERS_TODO: todo.example_family_reminders
+GARAGE_DOOR_LABEL: Example garage door
+GARAGE_DOOR_COVER: cover.example_garage_door
+HOURLY_WEATHER_FORECAST_SENSOR: sensor.example_hourly_weather_forecast
+OUTDOOR_AQI_SENSOR: sensor.example_outdoor_aqi
+SAFETY_IMMEDIATE_HAZARDS_ROLE: binary_sensor.example_immediate_hazards
+SCHOOL_CLOSURES_CALENDAR: calendar.example_school_closures
+SCHOOL_DAY_DROPDOWN: input_select.example_school_day
+SCHOOL_LUNCH_CALENDAR: calendar.example_school_lunch
+SHOPPING_LIST_TODO: todo.example_shopping_list
+SUNRISE_SENSOR: sensor.example_sunrise_time
+SUNSET_SENSOR: sensor.example_sunset_time
+THERMOSTAT: climate.example_thermostat
+TRIPS_BREAKS_CALENDAR: calendar.example_trips_breaks
+US_HOLIDAYS_CALENDAR: calendar.example_us_holidays
+WALLBOARD_BACKGROUND_IMAGE_URL: https://example.com/wallboard-background.jpg
+WASHER_POWER_SENSOR: sensor.example_washer_power
+WEATHER_ENTITY: weather.example
+FRONT_ENTRY_LOCK: lock.example_front_entry
+FRONT_ENTRY_LABEL: Front Entry
+GARAGE_ENTRY_LOCK: lock.example_garage_entry
+GARAGE_ENTRY_LABEL: Garage Entry
+SIDE_ENTRY_LOCK: lock.example_side_entry
+SIDE_ENTRY_LABEL: Side Entry

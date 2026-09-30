@@ -17,6 +17,10 @@ def test_renderer_fails_on_an_undefined_token() -> None:
         render_text("camera: {DASHBOARD_CAMERA}", {})
 
 
+def test_renderer_does_not_treat_javascript_template_literals_as_tokens() -> None:
+    assert render_text("label: ${FOO}", {}) == "label: ${FOO}"
+
+
 def test_renderer_assembles_a_display_from_one_source_file_per_view() -> None:
     WORK.mkdir(parents=True, exist_ok=True)
     view = WORK / "view.yaml"
@@ -38,3 +42,37 @@ def test_renderer_assembles_a_display_from_one_source_file_per_view() -> None:
         ]
     }
     assert yaml.safe_dump(rendered)
+
+
+def test_renderer_carries_display_top_level_keys() -> None:
+    WORK.mkdir(parents=True, exist_ok=True)
+    view = WORK / "view.yaml"
+    source = WORK / "display.yaml"
+    view.write_text("title: Home\ncards: []\n")
+    source.write_text("title: Wallboard\nurl_path: dashboard-wallboard\nviews:\n  - view.yaml\nprerequisites:\n  entities: []\nsupport_packages: []\n")
+
+    assert render_display(source) == {"title": "Wallboard", "url_path": "dashboard-wallboard", "views": [{"title": "Home", "cards": []}]}
+
+
+def test_renderer_assembles_sections_from_one_source_file_each() -> None:
+    WORK.mkdir(parents=True, exist_ok=True)
+    section = WORK / "section.yaml"
+    view = WORK / "view.yaml"
+    source = WORK / "display.yaml"
+    overlay = WORK / "overlay.local.yaml"
+    section.write_text("type: grid\ncards:\n  - type: entity\n    entity: {DISPLAY_ENTITY}\n")
+    view.write_text("title: Home\ntype: sections\nsections:\n  - section.yaml\n")
+    source.write_text("views:\n  - view.yaml\n")
+    overlay.write_text("DISPLAY_ENTITY: sensor.example\n")
+
+    assert render_display(source, overlay) == {
+        "views": [
+            {
+                "title": "Home",
+                "type": "sections",
+                "sections": [
+                    {"type": "grid", "cards": [{"type": "entity", "entity": "sensor.example"}]}
+                ],
+            }
+        ]
+    }
