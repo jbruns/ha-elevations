@@ -124,12 +124,16 @@ actions:
         {%- set ns = namespace(closed=false) -%}
         {%- for event in events if event is mapping -%}
           {%- set summary = event.get('summary', '') | lower -%}
-          {%- set starts = as_datetime(event.get('start')) -%}
-          {%- set ends = as_datetime(event.get('end')) -%}
+          {%- set raw_start = event.get('start') -%}
+          {%- set raw_end = event.get('end') -%}
+          {%- set starts = as_datetime(raw_start) -%}
+          {%- set ends = as_datetime(raw_end) -%}
           {%- if phrase in summary and starts is not none and ends is not none -%}
-            {%- set start_day = as_local(starts).date().isoformat() -%}
-            {%- set end_day = as_local(ends).date().isoformat() -%}
-            {%- if start_day <= today < end_day -%}
+            {%- set start_day = raw_start if raw_start is string and raw_start | length == 10 else as_local(starts).date().isoformat() -%}
+            {%- set end_day = raw_end if raw_end is string and raw_end | length == 10 else as_local(ends).date().isoformat() -%}
+            {%- set all_day = raw_start is string and raw_start | length == 10 and raw_end is string and raw_end | length == 10 -%}
+            {%- set end_midnight = all_day or (as_local(ends).hour == 0 and as_local(ends).minute == 0 and as_local(ends).second == 0 and as_local(ends).microsecond == 0) -%}
+            {%- if start_day <= today and (today < end_day if end_midnight else today <= end_day) -%}
               {%- set ns.closed = true -%}
             {%- endif -%}
           {%- endif -%}
@@ -141,12 +145,16 @@ actions:
         {%- set ns = namespace(closed=false) -%}
         {%- for event in events if event is mapping -%}
           {%- set summary = event.get('summary', '') | lower -%}
-          {%- set starts = as_datetime(event.get('start')) -%}
-          {%- set ends = as_datetime(event.get('end')) -%}
+          {%- set raw_start = event.get('start') -%}
+          {%- set raw_end = event.get('end') -%}
+          {%- set starts = as_datetime(raw_start) -%}
+          {%- set ends = as_datetime(raw_end) -%}
           {%- if phrase in summary and starts is not none and ends is not none -%}
-            {%- set start_day = as_local(starts).date().isoformat() -%}
-            {%- set end_day = as_local(ends).date().isoformat() -%}
-            {%- if start_day <= tomorrow < end_day -%}
+            {%- set start_day = raw_start if raw_start is string and raw_start | length == 10 else as_local(starts).date().isoformat() -%}
+            {%- set end_day = raw_end if raw_end is string and raw_end | length == 10 else as_local(ends).date().isoformat() -%}
+            {%- set all_day = raw_start is string and raw_start | length == 10 and raw_end is string and raw_end | length == 10 -%}
+            {%- set end_midnight = all_day or (as_local(ends).hour == 0 and as_local(ends).minute == 0 and as_local(ends).second == 0 and as_local(ends).microsecond == 0) -%}
+            {%- if start_day <= tomorrow and (tomorrow < end_day if end_midnight else tomorrow <= end_day) -%}
               {%- set ns.closed = true -%}
             {%- endif -%}
           {%- endif -%}
@@ -158,9 +166,10 @@ actions:
         {%- set ns = namespace(day=none) -%}
         {%- for event in events if event is mapping -%}
           {%- set summary = event.get('summary', '') | lower -%}
-          {%- set starts = as_datetime(event.get('start')) -%}
+          {%- set raw_start = event.get('start') -%}
+          {%- set starts = as_datetime(raw_start) -%}
           {%- if phrase in summary and starts is not none -%}
-            {%- set day = as_local(starts).date() -%}
+            {%- set day = raw_start if raw_start is string and raw_start | length == 10 else as_local(starts).date().isoformat() -%}
             {%- if ns.day is none or day < ns.day -%}
               {%- set ns.day = day -%}
             {%- endif -%}
@@ -173,9 +182,10 @@ actions:
         {%- set ns = namespace(day=none) -%}
         {%- for event in events if event is mapping -%}
           {%- set summary = event.get('summary', '') | lower -%}
-          {%- set starts = as_datetime(event.get('start')) -%}
+          {%- set raw_start = event.get('start') -%}
+          {%- set starts = as_datetime(raw_start) -%}
           {%- if phrase in summary and starts is not none -%}
-            {%- set ns.day = as_local(starts).date() -%}
+            {%- set ns.day = raw_start if raw_start is string and raw_start | length == 10 else as_local(starts).date().isoformat() -%}
           {%- endif -%}
         {%- endfor -%}
         {{ ns.day }}

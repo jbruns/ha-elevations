@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from testing.automations import async_setup_automations, blueprint_automation
 from testing.calendar import Calendar, Event
@@ -15,6 +16,15 @@ from testing.helpers import Helpers
 BLUEPRINT = "family/blueprints/automation/family_school_day.yaml"
 FIRST_DAY = date(2026, 9, 1)
 LAST_DAY = date(2027, 6, 18)
+
+
+@pytest.fixture(autouse=True)
+async def chicago_time_zone(hass: HomeAssistant):
+    original_time_zone = dt_util.get_default_time_zone()
+    await hass.config.async_set_time_zone("America/Chicago")
+    dt_util.set_default_time_zone(dt_util.get_time_zone("America/Chicago"))
+    yield
+    dt_util.set_default_time_zone(original_time_zone)
 
 
 @dataclass
@@ -128,6 +138,30 @@ async def test_a_multi_day_closure_that_began_before_today_closes_today_and_tomo
 
     assert school_day.today is False
     assert school_day.tomorrow is False
+
+
+async def test_a_timed_single_day_closure_closes_that_day(
+    school_day: SchoolDay,
+) -> None:
+    await school_day.closures.set_events(
+        [
+            Event(
+                datetime(
+                    2026, 9, 3, 8, tzinfo=dt_util.get_time_zone("America/Chicago")
+                ),
+                datetime(
+                    2026, 9, 3, 15, tzinfo=dt_util.get_time_zone("America/Chicago")
+                ),
+                "No school: conference day",
+            )
+        ]
+    )
+    await school_day.start()
+
+    await school_day.run_at_six(date(2026, 9, 3))
+
+    assert school_day.today is False
+    assert school_day.tomorrow is True
 
 
 async def test_a_closure_ending_today_does_not_close_today(
