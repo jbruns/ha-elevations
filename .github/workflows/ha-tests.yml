@@ -3,9 +3,9 @@
 #
 # gate:   the pinned phcc from uv.lock. Fails if the pin is an HA pre-release,
 #         because the pin leads live HA (ADR 0008).
-# canary: the newest phcc that pins a stable HA, plus the newest that pins an
-#         HA beta while one is out. Keeps one rolling issue in the calling repo:
-#         opened or updated on failure, closed when green again.
+# canary: the newest phcc that pins a stable HA; betas are never tested.
+#         Keeps one rolling issue in the calling repo: opened or updated on
+#         failure, closed when green again.
 name: HA tests
 
 on:
@@ -48,9 +48,9 @@ jobs:
                   with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/{path}", timeout=30) as r:
                       return json.load(r)
 
-              # phcc has no pre-releases of its own. Instead some of its stable
-              # versions pin an HA beta, so read the HA pin of each version,
-              # newest first, until one pins a stable HA.
+              # phcc has no pre-releases of its own. Instead some of its
+              # ordinary versions pin an HA beta, so read the HA pin of each
+              # version, newest first, and take the first that pins a stable HA.
               releases = pypi("json")["releases"]
               uploaded = {
                   v: max(f["upload_time_iso_8601"] for f in files)
@@ -65,12 +65,10 @@ jobs:
                       continue
                   ha = pin.split("==", 1)[1].split(";")[0].strip()
                   if re.search(r"(a|b|rc|dev)\d*$", ha):
-                      if not channels:
-                          channels.append({"channel": "beta", "phcc": version, "ha": ha})
                       continue
-                  channels.insert(0, {"channel": "latest", "phcc": version, "ha": ha})
+                  channels.append({"channel": "latest", "phcc": version, "ha": ha})
                   break
-              if not channels or channels[0]["channel"] != "latest":
+              if not channels:
                   sys.exit("No phcc release among the newest 30 pins a stable Home Assistant")
           else:
               sys.exit(f"mode must be gate or canary, not {mode!r}")

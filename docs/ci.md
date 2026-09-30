@@ -8,7 +8,7 @@ Python comes from `requires-python` via uv, so the jobs follow HA's Python.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `mode` | `gate` | `gate`: `uv sync --frozen`, then `uv run pytest` on the pinned phcc. Fails if the pin is an HA pre-release. `canary`: the same tests on the newest phcc that pins a stable HA, plus the newest that pins an HA beta while one is out. |
+| `mode` | `gate` | `gate`: `uv sync --frozen`, then `uv run pytest` on the pinned phcc. Fails if the pin is an HA pre-release. `canary`: the same tests on the newest phcc that pins a stable HA. Neither mode tests HA betas. |
 | `pytest-args` | `""` | Extra pytest arguments, split on spaces. |
 
 The canary keeps one rolling issue in the calling repo, labelled `ha-canary` (created if missing). It opens the issue on the first failure and comments on it at each failure after that. When the canary is green again, it comments and closes the issue. It never contacts Home Assistant.
@@ -77,4 +77,4 @@ phcc bumps count as `patch` updates to Renovate, because phcc versions are `0.13
 
 ## What we've learned
 
-- phcc publishes no pre-release versions. Instead, some of its ordinary releases pin an HA beta, for example phcc 0.13.360 pinned `homeassistant==2026.9.0b3`. So the canary finds a beta by reading each phcc release's `homeassistant==` requirement on PyPI, and Renovate can propose an `ha-pin` PR onto a beta. The gate fails such a PR until phcc pins the stable release.
+- phcc publishes no pre-release versions. Instead, some of its ordinary releases pin an HA beta, for example phcc 0.13.360 pinned `homeassistant==2026.9.0b3`. So the canary reads each phcc release's `homeassistant==` requirement on PyPI and skips any that pin a beta. Renovate can still propose an `ha-pin` PR onto a beta. The gate fails such a PR until phcc pins the stable release.
