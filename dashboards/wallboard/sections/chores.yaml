@@ -1,0 +1,43 @@
+type: grid
+cards:
+- type: custom:mushroom-template-card
+  primary: '{CHILD_A_NAME}'
+  secondary: '{{ state_attr(''{CHILD_A_CHORES_SENSOR}'', ''chore_stat_current_due_today'')
+    | int(0) }} due today | {{ state_attr(''{CHILD_A_CHORES_SENSOR}'', ''chore_stat_current_overdue'')
+    | int(0) }} overdue
+
+    {{ states(''{CHILD_A_POINTS_SENSOR}'') | float(0) | round(0) }} points'
+  icon: mdi:account-child
+  icon_color: '{{ ''red'' if state_attr(''{CHILD_A_CHORES_SENSOR}'', ''chore_stat_current_overdue'')
+    | int(0) > 0 else ''green'' }}'
+  multiline_secondary: true
+  tap_action:
+    action: none
+  grid_options:
+    columns: 6
+    rows: 2
+- type: custom:mushroom-template-card
+  primary: '{CHILD_B_NAME}'
+  secondary: '{{ state_attr(''{CHILD_B_CHORES_SENSOR}'', ''chore_stat_current_due_today'')
+    | int(0) }} due today | {{ state_attr(''{CHILD_B_CHORES_SENSOR}'', ''chore_stat_current_overdue'')
+    | int(0) }} overdue
+
+    {{ states(''{CHILD_B_POINTS_SENSOR}'') | float(0) | round(0) }} points'
+  icon: mdi:account-child
+  icon_color: '{{ ''red'' if state_attr(''{CHILD_B_CHORES_SENSOR}'', ''chore_stat_current_overdue'')
+    | int(0) > 0 else ''green'' }}'
+  multiline_secondary: true
+  tap_action:
+    action: none
+  grid_options:
+    columns: 6
+    rows: 2
+- type: todo-list
+  entity: '{SHOPPING_LIST_TODO}'
+  title: Shopping List
+  hide_completed: true
+  grid_options:
+    columns: 36
+    rows: 14
+  card_mod:
+    style: "ha-card {\n  overflow-x: scroll;\n}\n"

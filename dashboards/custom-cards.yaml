@@ -4,3 +4,24 @@ custom_cards:
   advanced-camera-card:
     repository: dermotduffy/advanced-camera-card
     installed_version: v8.1.0
+  atomic-calendar-revive:
+    repository: totaldebug/atomic-calendar-revive
+    installed_version: v10.3.1
+  better-moment-card:
+    repository: ibz0q/better-moment-card
+    installed_version: '2025.01.11'
+  clock-weather-card:
+    repository: pkissling/clock-weather-card
+    installed_version: v2.9.5
+  hourly-weather:
+    repository: decompil3d/lovelace-hourly-weather
+    installed_version: 7.1.1
+  mushroom-entity-card:
+    repository: piitaya/lovelace-mushroom
+    installed_version: v5.2.3
+  mushroom-template-badge:
+    repository: piitaya/lovelace-mushroom
+    installed_version: v5.2.3
+  mushroom-template-card:
+    repository: piitaya/lovelace-mushroom
+    installed_version: v5.2.3

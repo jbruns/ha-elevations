@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
 from homeassistant.setup import async_setup_component
 
-from scripts.render_assets import render_display
+from scripts.render_assets import load_overlay, render_display, render_text
 
 ENTITY = re.compile(r"\b[a-z_]+\.[a-z0-9_]+\b")
 
@@ -106,9 +106,13 @@ def assert_entities_documented(rendered: dict[str, Any], source: DisplaySource) 
     assert not undocumented, f"entities missing from {source.path} prerequisites: {', '.join(undocumented)}"
 
 
-async def async_load_support_packages(hass: HomeAssistant, source: DisplaySource) -> None:
+async def async_load_support_packages(
+    hass: HomeAssistant, source: DisplaySource, overlay: Path | None = None
+) -> None:
+    values = load_overlay(overlay) if overlay else {}
     for package in source.support_packages:
-        config = yaml.safe_load(package.read_text()) or {}
+        rendered = render_text(package.read_text(), values, source=package)
+        config = yaml.safe_load(rendered) or {}
         for domain, domain_config in config.items():
             assert await async_setup_component(hass, domain, {domain: domain_config})
 
@@ -121,9 +125,20 @@ async def async_create_placeholder_entities(hass: HomeAssistant, source: Display
     }
     if input_datetime:
         assert await async_setup_component(hass, "input_datetime", {"input_datetime": input_datetime})
+    placeholder_states = {
+        "binary_sensor": "off",
+        "cover": "closed",
+        "input_select": "false",
+        "lock": "locked",
+        "person": "home",
+        "sensor": "0",
+        "todo": "0",
+        "weather": "sunny",
+    }
     for entity in source.prerequisites:
         if not entity.startswith("input_datetime."):
-            hass.states.async_set(entity, "idle")
+            domain = entity.split(".", 1)[0]
+            hass.states.async_set(entity, placeholder_states.get(domain, "idle"))
 
 
 async def async_render_templates(hass: HomeAssistant, rendered: dict[str, Any]) -> list[str]:

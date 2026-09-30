@@ -1,0 +1,53 @@
+# Optional Wallboard package. Render with the Wallboard overlay before installing.
+template:
+  - binary_sensor:
+      - name: "Wallboard Any Entry Unlocked"
+        unique_id: wallboard_any_entry_unlocked
+        icon: mdi:lock-open-alert
+        device_class: lock
+        state: >-
+          {{
+            is_state('{FRONT_ENTRY_LOCK}', 'unlocked') or
+            is_state('{GARAGE_ENTRY_LOCK}', 'unlocked') or
+            is_state('{SIDE_ENTRY_LOCK}', 'unlocked')
+          }}
+
+      - name: "Wallboard Washer Active"
+        unique_id: wallboard_washer_active
+        icon: mdi:washing-machine
+        state: >-
+          {{ states('{WASHER_POWER_SENSOR}') | float(0) > 300 }}
+        delay_on: "00:02:00"
+        delay_off: "00:30:00"
+
+      - name: "Wallboard Dryer Active"
+        unique_id: wallboard_dryer_active
+        icon: mdi:tumble-dryer
+        state: >-
+          {{ states('{DRYER_POWER_SENSOR}') | float(0) > 100 }}
+        delay_off: "00:05:00"
+
+      - name: "Wallboard Dishwasher Active"
+        unique_id: wallboard_dishwasher_active
+        icon: mdi:dishwasher
+        state: >-
+          {{ states('{DISHWASHER_POWER_SENSOR}') | float(0) > 500 }}
+        delay_on: "00:02:00"
+        delay_off: "00:30:00"
+
+  - sensor:
+      - name: "Wallboard Unlocked Entries"
+        unique_id: wallboard_unlocked_entries
+        icon: mdi:lock-open-alert
+        state: >-
+          {% set unlocked = [] %}
+          {% if is_state('{FRONT_ENTRY_LOCK}', 'unlocked') %}
+            {% set unlocked = unlocked + ['{FRONT_ENTRY_LABEL}'] %}
+          {% endif %}
+          {% if is_state('{GARAGE_ENTRY_LOCK}', 'unlocked') %}
+            {% set unlocked = unlocked + ['{GARAGE_ENTRY_LABEL}'] %}
+          {% endif %}
+          {% if is_state('{SIDE_ENTRY_LOCK}', 'unlocked') %}
+            {% set unlocked = unlocked + ['{SIDE_ENTRY_LABEL}'] %}
+          {% endif %}
+          {{ unlocked | join(', ') if unlocked else 'All locked' }}
