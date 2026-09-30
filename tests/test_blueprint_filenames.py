@@ -41,7 +41,7 @@ def test_blueprints_are_found_in_every_context(tmp_path: Path) -> None:
         "climate/blueprints/automation/climate_a.yaml",
         "climate/blueprints/automation/climate_b.yaml",
         "safety/blueprints/automation/leaks/safety_leak.yml",
-        "front-door/dashboards/front_door_view.yaml",
+        "dashboards/our-home/views/front-door.yaml",
         ".venv/lib/blueprints/automation/vendored.yaml",
     ]:
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)

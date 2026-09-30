@@ -59,3 +59,43 @@ The package uses the same overlay as the Display for the entry locks, entry labe
 5. Render the Wallboard with `wallboard.local.yaml` and paste `wallboard/build/wallboard.yaml` into the storage dashboard at `dashboard-wallboard`.
 6. Verify the Wallboard shows the shared **Immediate Hazards** and **Exterior Doors** roles.
 7. Remove the old Wallboard-only hazards/open-doors groups and the old Wallboard package only after the pasted Display and new package are working.
+
+## Our Home
+
+`our-home/display.yaml` assembles the Our Home Display from one source file per view in `our-home/views/`. Render it with a gitignored local overlay:
+
+```sh
+uv run python scripts/render-asset.py display \
+  --source dashboards/our-home/display.yaml \
+  --overlay dashboards/our-home/our-home.local.yaml \
+  --output dashboards/our-home/build/our-home.yaml
+```
+
+Copy `our-home/our-home.local.example.yaml` to `our-home/our-home.local.yaml` and replace each placeholder with this home's real values. Never commit the real overlay or the rendered `build/` output.
+
+### Prerequisites
+
+- **Helpers**: the Front Door Snooze Date and time helpers, one per Recipient; the greeting input select currently used by the Conditions view.
+- **Roles**: none are consumed by Our Home yet. Keep the live entities as-is for this faithful extraction; later restructuring can consume Climate's **Exterior Doors** or Safety's **Immediate Hazards** only where the meaning exactly matches ADR 0010.
+- **Packages**: none for the faithful Our Home extraction. The shared weather forecast package remains documented above for Displays that consume those forecast sensors.
+- **Custom cards**: Advanced Camera Card, Mushroom, bignumber-card, Stack In Card, button-card, Simple Thermostat and Valetudo Map Card, with versions listed in `custom-cards.yaml`.
+
+### Cutover
+
+Do not cut over without an explicit maintainer request.
+
+1. Back up Home Assistant.
+2. Confirm the prerequisites above exist, including the custom cards.
+3. Render `dashboards/our-home/build/our-home.yaml` from the local overlay.
+4. Optionally run the local baseline diff:
+
+   ```sh
+   uv run python scripts/diff-rendered-dashboard.py \
+     --source dashboards/our-home/display.yaml \
+     --overlay dashboards/our-home/our-home.local.yaml \
+     --url-path our-home \
+     --ssh-host hassio@ha.example.com
+   ```
+
+5. In Home Assistant, open Our Home (`url_path: our-home`) and paste the rendered YAML into the raw configuration editor.
+6. Save, then verify all seven views: Conditions, Lighting, Climate, Cameras, Devices, TV and Front Door.

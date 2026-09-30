@@ -19,6 +19,7 @@ def test_renderer_fails_on_an_undefined_token() -> None:
 
 def test_renderer_does_not_treat_javascript_template_literals_as_tokens() -> None:
     assert render_text("label: ${FOO}", {}) == "label: ${FOO}"
+    assert render_text("return `${FOO}`;", {}) == "return `${FOO}`;"
 
 
 def test_renderer_assembles_a_display_from_one_source_file_per_view() -> None:
@@ -27,12 +28,13 @@ def test_renderer_assembles_a_display_from_one_source_file_per_view() -> None:
     source = WORK / "display.yaml"
     overlay = WORK / "overlay.local.yaml"
     view.write_text("title: Front Door\npath: front-door\ncards:\n  - type: picture-entity\n    entity: {DISPLAY_CAMERA}\n")
-    source.write_text("views:\n  - view.yaml\n")
+    source.write_text("title: Test Display\nurl_path: test-display\nviews:\n  - view.yaml\n")
     overlay.write_text("DISPLAY_CAMERA: camera.example\n")
 
     rendered = render_display(source, overlay)
 
     assert rendered == {
+        "title": "Test Display",
         "views": [
             {
                 "title": "Front Door",
@@ -51,7 +53,7 @@ def test_renderer_carries_display_top_level_keys() -> None:
     view.write_text("title: Home\ncards: []\n")
     source.write_text("title: Wallboard\nurl_path: dashboard-wallboard\nviews:\n  - view.yaml\nprerequisites:\n  entities: []\nsupport_packages: []\n")
 
-    assert render_display(source) == {"title": "Wallboard", "url_path": "dashboard-wallboard", "views": [{"title": "Home", "cards": []}]}
+    assert render_display(source) == {"views": [{"title": "Home", "cards": []}], "title": "Wallboard"}
 
 
 def test_renderer_assembles_sections_from_one_source_file_each() -> None:

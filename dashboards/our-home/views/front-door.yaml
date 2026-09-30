@@ -1,0 +1,47 @@
+title: Front Door
+path: front-door
+icon: mdi:doorbell-video
+type: panel
+subview: true
+cards:
+- type: vertical-stack
+  cards:
+  - type: custom:advanced-camera-card
+    card_id: alert_review
+    cameras:
+    - camera_entity: {FRONT_DOOR_CAMERA}
+      media:
+        type: reviews
+        reviewed: all
+    view:
+      default: review
+    profiles:
+    - scrubbing
+  - type: horizontal-stack
+    cards:
+    - type: markdown
+      content: '{% set until = state_attr(''{FRONT_DOOR_SNOOZE_PHONE_A}'', ''timestamp'') or 0 %} **{FRONT_DOOR_PHONE_A_NAME}**: {{ ''Snoozed until '' ~ until | timestamp_custom(''%H:%M'') if until > now().timestamp() else ''Not snoozed'' }}'
+    - type: button
+      name: Resume
+      icon: mdi:bell-ring
+      tap_action:
+        action: perform-action
+        perform_action: input_datetime.set_datetime
+        target:
+          entity_id: {FRONT_DOOR_SNOOZE_PHONE_A}
+        data:
+          timestamp: 0
+  - type: horizontal-stack
+    cards:
+    - type: markdown
+      content: '{% set until = state_attr(''{FRONT_DOOR_SNOOZE_PHONE_B}'', ''timestamp'') or 0 %} **{FRONT_DOOR_PHONE_B_NAME}**: {{ ''Snoozed until '' ~ until | timestamp_custom(''%H:%M'') if until > now().timestamp() else ''Not snoozed'' }}'
+    - type: button
+      name: Resume
+      icon: mdi:bell-ring
+      tap_action:
+        action: perform-action
+        perform_action: input_datetime.set_datetime
+        target:
+          entity_id: {FRONT_DOOR_SNOOZE_PHONE_B}
+        data:
+          timestamp: 0

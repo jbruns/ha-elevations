@@ -40,8 +40,8 @@ blueprint:
       description: >-
         The dashboard view that tapping the Notification or its Talk action
         opens, one with a live camera card that has two-way audio, such as
-        /lovelace/cameras. A path within Home Assistant, so it opens in the app.
-      default: /lovelace/cameras
+        /our-home/cameras. A path within Home Assistant, so it opens in the app.
+      default: /our-home/cameras
       selector:
         text:
 

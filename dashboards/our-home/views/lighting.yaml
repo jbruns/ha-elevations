@@ -1,0 +1,80 @@
+title: Lighting
+path: lighting
+icon: ''
+badges: []
+cards:
+- type: vertical-stack
+  cards:
+  - type: entities
+    entities:
+    - entity: switch.kitchen
+      name: Kitchen Overhead
+      icon: mdi:light-recessed
+    - entity: light.kitchen_island_lights
+      icon: mdi:ceiling-light-multiple
+      name: Kitchen Island
+    - entity: switch.kitchen_undercabinet
+      icon: mdi:led-strip-variant
+    - entity: light.coffee_bar_spot
+      icon: mdi:light-recessed
+    - entity: light.dining_room
+      icon: mdi:vanity-light
+    - entity: light.living_room
+      icon: mdi:light-recessed
+    - entity: light.entry_stairwell
+      icon: mdi:chandelier
+      secondary_info: none
+    - entity: light.master_bedroom
+      icon: mdi:light-recessed
+    title: Interior Lighting
+    show_header_toggle: false
+    state_color: true
+  - type: entities
+    entities:
+    - entity: {CHILD_A_BEDROOM_LIGHT}
+      icon: mdi:light-recessed
+    - entity: {CHILD_B_BEDROOM_LIGHT}
+      icon: mdi:light-recessed
+    - entity: light.loft
+      icon: mdi:light-recessed
+    state_color: true
+  - type: entities
+    entities:
+    - entity: light.basement_stairwell
+      icon: mdi:led-strip-variant
+    - entity: light.basement_entry
+      icon: mdi:light-recessed
+    - entity: light.theater
+      icon: mdi:light-recessed
+    - entity: light.theater_sconces
+      icon: mdi:wall-sconce-flat
+    - entity: light.guest_hallway_sconces
+      icon: mdi:wall-sconce-flat
+    - entity: light.kitchenette
+      icon: mdi:light-recessed
+    - entity: light.cabinet_spot
+      icon: mdi:light-recessed
+    - entity: light.playroom
+      icon: mdi:light-recessed
+    - entity: light.office
+      icon: mdi:light-recessed
+    - entity: light.office_task
+      icon: mdi:light-flood-down
+    state_color: true
+  - type: entities
+    entities:
+    - entity: light.front_exterior
+      icon: mdi:coach-lamp
+    - entity: light.breezeway
+      icon: mdi:coach-lamp
+    - entity: switch.north_deck
+      icon: mdi:coach-lamp
+    - entity: light.deck_recessed_lights
+      icon: mdi:lightbulb-spot
+      name: Deck Recessed Lights
+    - entity: light.deck_stair_lights
+      icon: mdi:stairs
+      name: Deck Stair Lights
+    title: Exterior Lighting
+    state_color: true
+    show_header_toggle: false

@@ -22,6 +22,7 @@ from testing.displays import (
 
 ROOT = Path(__file__).parents[2]
 DISPLAY = ROOT / "dashboards" / "our-home" / "display.yaml"
+OVERLAY = ROOT / "dashboards" / "our-home" / "our-home.local.example.yaml"
 CUSTOM_CARDS = ROOT / "dashboards" / "custom-cards.yaml"
 
 
@@ -32,12 +33,12 @@ def display_source() -> DisplaySource:
 
 @pytest.fixture
 def display(display_source: DisplaySource) -> dict[str, Any]:
-    return display_source.render()
+    return display_source.render(OVERLAY)
 
 
 @pytest.fixture
 def view(display: dict[str, Any]) -> dict[str, Any]:
-    [view] = display["views"]
+    [view] = [v for v in display["views"] if v["path"] == "front-door"]
     return view
 
 

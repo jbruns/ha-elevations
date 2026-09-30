@@ -1,0 +1,20 @@
+CHILD_A_BEDROOM_LIGHT: light.child_a_bedroom
+CHILD_B_BEDROOM_LIGHT: light.child_b_bedroom
+EAST_GARAGE_DOOR_COVER: cover.example_garage_door
+FRONT_DOOR_CAMERA: camera.example
+FRONT_DOOR_DOORBELL_VISITOR: binary_sensor.example_doorbell_visitor
+FRONT_DOOR_PHONE_A_NAME: Phone A
+FRONT_DOOR_PHONE_B_NAME: Phone B
+FRONT_DOOR_SNOOZE_PHONE_A: input_datetime.snooze_phone_a
+FRONT_DOOR_SNOOZE_PHONE_B: input_datetime.snooze_phone_b
+MAIN_FLOOR_VACUUM_ENTITY: vacuum.example_main_floor
+MAIN_FLOOR_VACUUM_ID: example_main_floor
+OUTDOOR_WEATHER_FEELS_LIKE_SENSOR: sensor.example_outdoor_feels_like
+OUTDOOR_WEATHER_HUMIDITY_SENSOR: sensor.example_outdoor_humidity
+OUTDOOR_WEATHER_TEMPERATURE_SENSOR: sensor.example_outdoor_temperature
+OUTDOOR_WEATHER_WIND_SPEED_SENSOR: sensor.example_outdoor_wind_speed
+PERSON_A_ENTITY: person.example_a
+PERSON_A_NAME: Person A
+PERSON_B_ENTITY: person.example_b
+PERSON_B_NAME: Person B
+WEATHER_LOCATION_NAME: Example, WA

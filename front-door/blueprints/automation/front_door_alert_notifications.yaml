@@ -45,18 +45,18 @@ blueprint:
       name: Review view
       description: >-
         The dashboard view that tapping a Notification opens: the front-door
-        view from front-door/dashboards/front_door_view.yaml in
+        view from dashboards/our-home/views/front-door.yaml in
         jbruns/ha-elevations. A path within Home Assistant, such as
-        /lovelace/front-door, so it opens in the app.
-      default: /lovelace/front-door
+        /our-home/front-door, so it opens in the app.
+      default: /our-home/front-door
       selector:
         text:
     live_view:
       name: Live view
       description: >-
         The dashboard view that the Notification's Live action opens, such as
-        /lovelace/cameras. A path within Home Assistant, so it opens in the app.
-      default: /lovelace/cameras
+        /our-home/cameras. A path within Home Assistant, so it opens in the app.
+      default: /our-home/cameras
       selector:
         text:
     report_wait:
@@ -137,7 +137,7 @@ variables:
   # Relative paths, so the app opens them itself, at home or away.
   # The URL action makes the front-door view's card load the latest Review
   # even when the app already has the view open. alert_review is the card_id
-  # in front-door/dashboards/front_door_view.yaml.
+  # in dashboards/our-home/views/front-door.yaml.
   review_url: >-
     {{ review_view_input | trim | regex_replace('/+$', '') }}?advanced-camera-card-action.alert_review.review
   live_url: "{{ live_view_input | trim | regex_replace('/+$', '') }}"

@@ -101,15 +101,18 @@ def render_display(source: Path, overlay: Path | None = None) -> dict[str, Any]:
     source_config = yaml.safe_load(source.read_text()) or {}
     if not isinstance(source_config, dict):
         raise ValueError(f"{source}: expected a display source mapping")
-    display = {
-        key: value
-        for key, value in source_config.items()
-        if key not in {"views", "prerequisites", "support_packages"}
-    }
+    display: dict[str, Any] = {}
     views = []
     for path in _source_paths(source):
         views.append(_render_view(path, values))
     display["views"] = views
+    display.update(
+        {
+            key: value
+            for key, value in source_config.items()
+            if key not in {"views", "url_path", "prerequisites", "support_packages"}
+        }
+    )
     return display
 
 

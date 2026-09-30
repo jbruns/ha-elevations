@@ -62,13 +62,16 @@ def walk(node: Any) -> Iterable[Any]:
 
 
 def custom_card_types(rendered: dict[str, Any]) -> set[str]:
-    return {
-        node["type"].removeprefix("custom:")
-        for node in walk(rendered)
-        if isinstance(node, dict)
-        and isinstance(node.get("type"), str)
-        and node["type"].startswith("custom:")
-    }
+    types = set()
+    for node in walk(rendered):
+        if (
+            isinstance(node, dict)
+            and isinstance(node.get("type"), str)
+            and node["type"].startswith("custom:")
+        ):
+            card_type = node["type"].removeprefix("custom:")
+            types.add("mushroom" if card_type.startswith("mushroom-") else card_type)
+    return types
 
 
 def assert_custom_cards_listed(rendered: dict[str, Any], manifest_path: Path) -> None:
@@ -143,7 +146,18 @@ async def async_create_placeholder_entities(hass: HomeAssistant, source: Display
 
 async def async_render_templates(hass: HomeAssistant, rendered: dict[str, Any]) -> list[str]:
     results = []
-    for node in walk(rendered):
-        if isinstance(node, str) and ("{{" in node or "{%" in node):
-            results.append(Template(node, hass).async_render(parse_result=False))
+    def render_node(node: Any, variables: dict[str, Any] | None = None) -> None:
+        if isinstance(node, dict):
+            local_variables = variables
+            if isinstance(node.get("entity"), str):
+                local_variables = {**(variables or {}), "entity": node["entity"]}
+            for value in node.values():
+                render_node(value, local_variables)
+        elif isinstance(node, list):
+            for value in node:
+                render_node(value, variables)
+        elif isinstance(node, str) and ("{{" in node or "{%" in node):
+            results.append(Template(node, hass).async_render(variables, parse_result=False))
+
+    render_node(rendered)
     return results

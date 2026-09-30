@@ -435,7 +435,7 @@ async def test_tapping_the_notification_opens_the_latest_review_in_the_app(
     url = urlparse(notification["data"]["url"])
     # A relative path stays in the app, on whatever connection it uses.
     assert not url.scheme and not url.netloc
-    assert url.path == "/lovelace/front-door"
+    assert url.path == "/our-home/front-door"
     assert url.query == f"advanced-camera-card-action.{REVIEW_CARD_ID}.review"
 
 
@@ -449,7 +449,7 @@ async def test_live_action_opens_the_cameras_view_in_the_app(
     [notification] = recipient.notifications
     action = live_action(notification)
     assert action["action"] == "URI"
-    assert action["uri"] == "/lovelace/cameras"
+    assert action["uri"] == "/our-home/cameras"
 
 
 async def test_updates_keep_the_tap_and_live_action(
