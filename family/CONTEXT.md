@@ -20,6 +20,10 @@ _Avoid_: Quota, allowance, cap
 A weekday within the school year, from the first to the last day of school, that is not a closure.
 _Avoid_: School night, weekday, term day
 
+**Special Class**:
+The rotating class a child has on a School Day, such as library, PE, art or music. The class is about the day's routine, not the child's identity.
+_Avoid_: Specials, enrichment, elective
+
 **Viewing Window**:
 The hours of a day in which the Kids Account may play. It follows School Day, not the day of the week.
 _Avoid_: Allowed hours, schedule, curfew

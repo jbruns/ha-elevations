@@ -1,0 +1,107 @@
+blueprint:
+  name: Special Classes
+  description: >-
+    Sets one child's Special Class helper each school morning from a weekday
+    rotation. Create one automation from this blueprint for each child. The
+    child helper and class names are inputs, so no child's name is committed.
+    See family/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/family/blueprints/automation/family_special_classes.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    helper:
+      name: Special Class helper
+      description: >-
+        A Dropdown helper for this child. Include every class in the rotation,
+        plus No class, in the helper's options.
+      selector:
+        entity:
+          filter:
+            domain: input_select
+    school_day:
+      name: School Day helper
+      description: >-
+        Optional Toggle helper that is on for a School Day. Leave unset to use
+        the weekday rotation every Monday through Friday.
+      default: []
+      selector:
+        entity:
+          filter:
+            domain: input_boolean
+    update_time:
+      name: Update time
+      description: When the helper is set each morning.
+      default: "06:05:00"
+      selector:
+        time:
+    rotation:
+      name: Weekday rotation
+      icon: mdi:calendar-week
+      input:
+        monday:
+          name: Monday
+          default: Not set
+          selector: &class_name
+            text:
+        tuesday:
+          name: Tuesday
+          default: Not set
+          selector: *class_name
+        wednesday:
+          name: Wednesday
+          default: Not set
+          selector: *class_name
+        thursday:
+          name: Thursday
+          default: Not set
+          selector: *class_name
+        friday:
+          name: Friday
+          default: Not set
+          selector: *class_name
+    non_school:
+      name: Non-School Days
+      icon: mdi:calendar-remove
+      collapsed: true
+      input:
+        no_class:
+          name: Non-School Day value
+          description: >-
+            The helper is set to this on weekends and when the optional School
+            Day helper is off.
+          default: No class
+          selector: *class_name
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input update_time
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id: !input school_day
+
+variables:
+  school_day_entity: !input school_day
+  no_class: !input no_class
+  weekday: "{{ now().weekday() }}"
+  school_day_known: "{{ school_day_entity is string and school_day_entity | length > 0 }}"
+  is_school_day: >-
+    {{ weekday < 5 and (not school_day_known or is_state(school_day_entity, 'on')) }}
+  rotation:
+    - !input monday
+    - !input tuesday
+    - !input wednesday
+    - !input thursday
+    - !input friday
+  special_class: >-
+    {{ rotation[weekday] if is_school_day else no_class }}
+
+actions:
+  - action: input_select.select_option
+    target:
+      entity_id: !input helper
+    data:
+      option: "{{ special_class }}"
