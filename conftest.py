@@ -8,6 +8,7 @@ pytest_plugins = [
     "testing.sensors",
     "testing.household",
     "testing.weather",
+    "testing.calendar",
     "testing.thermostat",
     "testing.lights",
     "testing.sun",
