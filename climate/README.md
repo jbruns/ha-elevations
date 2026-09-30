@@ -95,14 +95,6 @@ Create one binary sensor group helper named **Exterior Doors** for the Exterior 
 - Close it. After 5 minutes the thermostat returns to its mode, and the Notification changes to HVAC resumed without a sound.
 - The automation's traces show each run. A run that ended at "Nothing to change" found no Door Pause to start or end.
 
-### Cutover
-
-1. Back up Home Assistant.
-2. Create the Exterior Doors binary sensor group helper and add the existing exterior door sensors to it.
-3. Import the updated Door Pause blueprint.
-4. Edit the Door Pause automation so **Exterior Doors** is the Exterior Doors input. The previous per-door list may be removed from that input.
-5. Test with one door: it pauses after the open duration, names the member door, and resumes after the closed duration.
-
 ## Ventilation Recommendation
 
 `blueprints/automation/climate_ventilation_recommendation.yaml` tells each Recipient when to open the windows, and when to close them again. It works the recommendation out itself, every 5 minutes, from the sensors and the hourly forecast.

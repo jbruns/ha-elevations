@@ -44,14 +44,6 @@ For example:
 - Dry the sensor, or close the door. **\<Title\> cleared** replaces it without a sound.
 - The automation's traces show each run. A run waiting at the `wait_template` is a Hazard waiting to clear.
 
-### Cutover
-
-1. Back up Home Assistant.
-2. Create the Immediate Hazards binary sensor group helper and add the existing leak, smoke and carbon monoxide sensors to it.
-3. Import the updated Hazard Notifications blueprint.
-4. Create or edit one Hazard Notifications automation so **Immediate Hazards** is the Sensor input, Hazard when is `on`, Held for is 0, Critical is on, and the Recipients are unchanged.
-5. Disable the previous immediate leak, smoke and carbon monoxide Hazard Notifications instances after verifying the role automation sends and clears Notifications that name the member sensor. The four Immediate Hazard instances collapse into one automation with one shared title and message; the member sensor's name is appended to the message, so per-Hazard wording changes. Keep delayed Hazards, such as the freezer door left open, as their own instances.
-
 ## Limit Breach Notifications
 
 `blueprints/automation/safety_limit_breach_notifications.yaml` watches one numeric sensor, such as a freezer's temperature or the outdoor air quality. Create one automation from it for each reading. It is separate from Infrastructure's Failure Notifications, which only ever tell the Administrator (ADR 0006).

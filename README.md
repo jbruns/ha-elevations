@@ -40,9 +40,9 @@ uv run scripts/render-asset.py display \
   --output dashboards/our-home/build/lovelace.yaml
 ```
 
-The renderer fails on undefined tokens. Never commit `*.local.yaml` overlays or `build/` output. Cutover is manual: paste or copy the rendered output into Home Assistant.
+The renderer fails on undefined tokens. Never commit `*.local.yaml` overlays or `build/` output. Installing is manual: paste or copy the rendered output into Home Assistant.
 
-For faithful Display extraction and pre-cutover checks, run the local-only baseline diff; it reads live Home Assistant read-only and is never used by CI:
+To compare a rendered Display with its live dashboard before pasting, run the local-only diff; it reads live Home Assistant read-only and is never used by CI:
 
 ```sh
 uv run scripts/diff-rendered-dashboard.py \
