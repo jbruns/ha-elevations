@@ -10,6 +10,7 @@ The repo is organised by context (ADR 0007). Each context's folder holds its glo
 - [Climate](./climate/README.md): comfort, and when to open or close the windows.
 - [Infrastructure](./infrastructure/README.md): tells the Administrator when the home's systems fail or recover, and which batteries need replacing.
 - [Safety](./safety/README.md): warns the household about hazards in the home, and readings past safe limits.
+- [Lighting](./lighting/README.md): turns lights on and off with the sun, the hour, and each other.
 
 Architecture decisions are in [docs/adr/](./docs/adr/).
 
@@ -40,6 +41,7 @@ uv run pytest
 | `helpers` | `input_boolean`, `input_select`, `input_datetime`, `input_text` and `timer` created by name (`testing/helpers.py`) |
 | `sensors` | any sensor's state and attributes, and battery sensors from a named integration (`testing/sensors.py`) |
 | `clock` | frozen time to move to or advance, firing `for:`, time and time pattern triggers; `advance(..., settle=False)` while a run waits in a `wait_template` or `delay` (`testing/clock.py`) |
+| `lights` | light and switch Leaders plus Follower lights whose `turn_on` and `turn_off` calls are captured; tests can set their state and brightness (`testing/lights.py`) |
 
 `testing/automations.py` builds an automation from any context's blueprint by its repo path, and creates automations. `testing/tests/` shows each fixture in use.
 
