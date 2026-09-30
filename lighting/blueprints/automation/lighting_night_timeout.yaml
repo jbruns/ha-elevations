@@ -1,0 +1,77 @@
+blueprint:
+  name: Night Timeout
+  description: >-
+    Turns a light off when it has been left on for the configured duration
+    during night hours. If the light has already been on for the duration when
+    night hours start, it turns off then. Uses entity triggers, not device
+    triggers. See lighting/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/lighting/blueprints/automation/lighting_night_timeout.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    light:
+      name: Light
+      description: The light to turn off when it stays on too long at night.
+      selector:
+        entity:
+          filter:
+            domain: light
+    duration:
+      name: Duration
+      description: Turn the light off after it has been on this long during night hours.
+      default:
+        hours: 0
+        minutes: 30
+        seconds: 0
+      selector:
+        duration:
+    night_start:
+      name: Night hours start
+      description: The time when Night Timeout starts applying.
+      default: "22:00:00"
+      selector:
+        time:
+    night_end:
+      name: Night hours end
+      description: The time when Night Timeout stops applying.
+      default: "07:00:00"
+      selector:
+        time:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    id: timeout
+    entity_id: !input light
+    to: "on"
+    for: !input duration
+  - trigger: time
+    id: night_start
+    at: !input night_start
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: timeout
+          - condition: time
+            after: !input night_start
+            before: !input night_end
+        sequence:
+          - action: light.turn_off
+            target:
+              entity_id: !input light
+      - conditions:
+          - condition: trigger
+            id: night_start
+          - condition: state
+            entity_id: !input light
+            state: "on"
+            for: !input duration
+        sequence:
+          - action: light.turn_off
+            target:
+              entity_id: !input light

@@ -4,7 +4,7 @@ Turns lights on and off with the sun, the hour, and each other. The glossary is 
 
 This folder holds:
 
-- `blueprints/automation/`: the Follow and Exterior Lights blueprints.
+- `blueprints/automation/`: the Follow, Exterior Lights, and Night Timeout blueprints.
 - `tests/`: runs the blueprints in a real Home Assistant core.
 
 Home Assistant imports these blueprints by URL, so they take every entity and every policy number as an input (ADR 0004). They use entity triggers rather than device triggers, so replacing a device does not silently break an automation.
@@ -57,6 +57,30 @@ Home Assistant imports these blueprints by URL, so they take every entity and ev
 - During the twilight band between the thresholds, no extra action should run.
 - Restart Home Assistant after dark during cutover if practical; the automation should turn the targets on after startup.
 
+## Night Timeout
+
+`blueprints/automation/lighting_night_timeout.yaml` turns off a light that has been left on too long during night hours.
+
+- The Light is selected by entity, not device.
+- Duration defaults to 30 minutes.
+- Night hours default to 22:00 through 07:00 and may cross midnight.
+- If a light turns on before night hours and reaches the Duration during night hours, it turns off then.
+- If the light has already been on for at least the Duration when night hours start, it turns off at night start.
+
+### Set up
+
+1. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
+2. Create one automation from it for each light that needs a Night Timeout.
+3. Pick the Light, Duration, Night hours start, and Night hours end. Keep the defaults to match the replaced live automation.
+4. Turn off any old automation that controls the same light after the same nighttime timeout, so they do not fight.
+
+### Check it works
+
+- Turn the light on during night hours and leave it on for the Duration; it should turn off.
+- Turn the light on during the day and leave it on for the Duration; it should stay on.
+- Turn the light off before the Duration; the automation should not call it again.
+- For night hours that cross midnight, test both before and after midnight if practical.
+
 ## Cutover
 
 Back up Home Assistant first, including `automations.yaml`.
@@ -78,3 +102,12 @@ Back up Home Assistant first, including `automations.yaml`.
 4. Disable the old `[Lighting]` dusk and dawn automations.
 5. Test the new automation by temporarily adjusting thresholds around the current `sun.sun` elevation, or by waiting for the next dusk and dawn.
 6. After the replacement instance works, delete the two old automations.
+
+### Night Timeout
+
+1. Import `lighting_night_timeout.yaml` from GitHub.
+2. Create one Night Timeout automation for the bedroom light that had the old middle-of-night timeout.
+3. Leave Duration at 30 minutes, Night hours start at 22:00, and Night hours end at 07:00 unless deliberately changing the policy.
+4. Disable the old `[Lighting]` middle-of-night automation for that light.
+5. Test the new automation by temporarily shortening Duration during night hours, then restore it to 30 minutes.
+6. After the replacement instance works, delete the old automation.
