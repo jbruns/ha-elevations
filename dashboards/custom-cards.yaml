@@ -22,6 +22,9 @@ custom_cards:
   hourly-weather:
     repository: decompil3d/lovelace-hourly-weather
     installed_version: 7.1.1
+  kiosk-mode:
+    repository: NemesisRE/kiosk-mode
+    installed_version: v14.2.1
   mushroom:
     repository: piitaya/lovelace-mushroom
     installed_version: v5.2.3
@@ -34,3 +37,6 @@ custom_cards:
   valetudo-map-card:
     repository: Hypfer/lovelace-valetudo-map-card
     installed_version: v2023.04.0
+  week-planner-card:
+    repository: FamousWolf/week-planner-card
+    installed_version: v1.14.1
