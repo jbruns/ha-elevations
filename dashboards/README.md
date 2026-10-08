@@ -40,7 +40,7 @@ The package uses the same overlay as the Display for the entry locks, entry labe
 
 ### Chores
 
-The rail shows each child's Chores from ChoreOps: overdue Chores first, then those due today, up to six with "+N more" after. Tapping a Chore presses its ChoreOps Claim button, with no confirmation. A claimed Chore stays greyed and can't be tapped until a parent approves it; approvals stay on the ChoreOps Chores dashboard. The overlay names each child and their ChoreOps UI dashboard helper sensor (`sensor.<child>_choreops_ui_dashboard_helper`).
+The rail shows each child's Chores from ChoreOps: overdue Chores first, then those due today, up to six with "+N more" after. Tapping a Chore presses its ChoreOps Claim button, with no confirmation. A claimed Chore stays greyed and can't be tapped until a parent approves it; approvals stay on the ChoreOps Chores dashboard. Claimed Chores sit after the open ones, so a Chore moves to the end once claimed. The overlay names each child and their ChoreOps dashboard helper sensor, `sensor.<child>_choreops_ui_dashboard_helper`.
 
 ChoreOps refuses a Claim from a Home Assistant user it does not authorize for that child. Either enable ChoreOps kiosk mode, or sign the kiosk browser in as a user ChoreOps authorizes.
 
@@ -51,7 +51,7 @@ ChoreOps refuses a Claim from a Home Assistant user it does not authorize for th
 - To-do lists for Shopping Items, Reminders and After-School Tasks, shown on the rail with the built-in to-do list card.
 - Family's School Day helper for today, the Toggle helper kept up to date by the School Day blueprint. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders on the rail.
 - Entry locks and appliance power sensors named in the local overlay, for the Wallboard support package above.
-- ChoreOps, with a UI dashboard helper sensor for each child named in the local overlay.
+- ChoreOps, with a dashboard helper sensor for each child named in the local overlay.
 - Custom cards listed in `custom-cards.yaml`: week-planner-card, auto-entities, Mushroom, card-mod and kiosk-mode.
 - The Wallboard base theme in `wallboard/themes/wallboard.yaml`, selected in the kiosk browser's profile.
 

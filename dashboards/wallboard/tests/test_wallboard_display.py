@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -173,7 +174,7 @@ def month_calendar_card(display: dict[str, Any]) -> dict[str, Any]:
 def chores_card(display: dict[str, Any]) -> dict[str, Any]:
     _, _, rail = wallboard_home(display)["sections"]
     for card in rail["cards"]:
-        if "sensor.example_child_a_choreops_dashboard_helper" in card.get("filter", {}).get("template", ""):
+        if "sensor.example_child_a_choreops_ui_dashboard_helper" in card.get("filter", {}).get("template", ""):
             return card
     raise AssertionError("Wallboard rail does not include the Chores card")
 
@@ -195,16 +196,27 @@ def set_child_chores(hass: HomeAssistant, child: str, chores: list[tuple[str, st
         )
         group = "this_week" if slug.endswith("_later") else "today"
         listed.append({"eid": status, "name": name, "state": state, "labels": [], "primary_group": group})
-    hass.states.async_set(f"sensor.example_{child}_choreops_dashboard_helper", "available", {"chores": listed})
+    hass.states.async_set(f"sensor.example_{child}_choreops_ui_dashboard_helper", "available", {"chores": listed})
 
 
 def children_chores(hass: HomeAssistant, display: dict[str, Any]) -> list[dict[str, Any]]:
     return list(Template(chores_card(display)["filter"]["template"], hass).async_render())
 
 
-def child_chips(child: dict[str, Any]) -> list[dict[str, Any]]:
+def child_chips_card(child: dict[str, Any]) -> dict[str, Any]:
     [chips] = [card for card in child["cards"] if card["type"] == "custom:mushroom-chips-card"]
-    return chips["chips"]
+    return chips
+
+
+def child_chips(child: dict[str, Any]) -> list[dict[str, Any]]:
+    return child_chips_card(child)["chips"]
+
+
+def faded_chip_positions(chips_card: dict[str, Any]) -> set[int]:
+    faded = set()
+    for first, last in re.findall(r"nth-child\(n\+(\d+)\):nth-child\(-n\+(\d+)\) \{ opacity: 0\.45; \}", chips_card["card_mod"]["style"]):
+        faded.update(range(int(first), int(last) + 1))
+    return faded
 
 
 def section_rows(section: dict[str, Any]) -> int:
@@ -528,13 +540,12 @@ async def test_wallboard_greys_a_claimed_chore_until_it_is_approved(
     set_child_chores(hass, "child_b", [("tidy_room", "Tidy room", "approved")])
 
     child_a, child_b = children_chores(hass, display)
-    [chips] = [card for card in child_a["cards"] if card["type"] == "custom:mushroom-chips-card"]
-    make_bed, brush_teeth = chips["chips"]
+    make_bed, brush_teeth = child_chips(child_a)
 
     assert brush_teeth["content"] == "Brush teeth"
     assert brush_teeth["icon_color"] == "disabled"
     assert brush_teeth["tap_action"] == {"action": "none"}
-    assert "mushroom-template-chip:nth-child(n+2):nth-child(-n+2) { opacity: 0.45; }" in chips["card_mod"]["style"]
+    assert faded_chip_positions(child_chips_card(child_a)) == {2}
     assert make_bed["icon_color"] == "red"
     assert [chip["content"] for chip in child_chips(child_b)] == ["Nothing due"]
 
