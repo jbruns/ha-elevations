@@ -18,6 +18,8 @@ prerequisites:
   - lock.example_front_entry
   - lock.example_garage_entry
   - lock.example_side_entry
+  - sensor.example_child_a_choreops_ui_dashboard_helper
+  - sensor.example_child_b_choreops_ui_dashboard_helper
   - sensor.example_dishwasher_power
   - sensor.example_dryer_power
   - sensor.example_washer_power

@@ -10,11 +10,58 @@ cards:
   grid_options:
     columns: full
     rows: 4
-# #59 replaces this placeholder with Chores and Claim.
-- type: markdown
-  content: |-
-    ### Chores
-    Chores and Claims will appear here.
+# Chores: each child's overdue and due-today Chores from ChoreOps. Tap a Chore to Claim it.
+# A claimed Chore stays greyed until a parent approves it on the Chores dashboard.
+- type: custom:auto-entities
+  card:
+    type: grid
+    columns: 2
+    square: false
+  card_param: cards
+  filter:
+    template: |-
+      {%- set children = [
+        ("{CHILD_A_NAME}", "{CHILD_A_CHOREOPS_DASHBOARD_HELPER}"),
+        ("{CHILD_B_NAME}", "{CHILD_B_CHOREOPS_DASHBOARD_HELPER}"),
+      ] -%}
+      {%- set limit = 6 -%}
+      {%- set chip_style = 'ha-card { --mush-chip-height: 40px; --mush-chip-font-size: 0.36em; --mush-chip-spacing: 6px; }' -%}
+      {%- set claimed_style = ' mushroom-template-chip:nth-child(n+%d):nth-child(-n+%d) { opacity: 0.45; }' -%}
+      {%- for name, helper in children -%}
+        {%- set today = state_attr(helper, 'chores') or [] -%}
+        {%- set today = today | selectattr('primary_group', 'eq', 'today') | list -%}
+        {%- set chores = (today | selectattr('state', 'eq', 'overdue') | list)
+          + (today | selectattr('state', 'in', ['due', 'pending']) | list)
+          + (today | selectattr('state', 'eq', 'claimed') | list) -%}
+        {%- set shown = chores[:limit] -%}
+        {%- set more = (chores | count) - (shown | count) -%}
+        {%- set claimed = shown | selectattr('state', 'eq', 'claimed') | list | count -%}
+        {'type': 'vertical-stack', 'cards': [
+          {'type': 'heading', 'heading': {{ name | tojson }}, 'heading_style': 'title'},
+          {'type': 'custom:mushroom-chips-card', 'chips': [
+        {%- for chore in shown -%}
+          {%- set claim = state_attr(chore['eid'], 'claim_button_eid') -%}
+          {%- if chore['state'] == 'claimed' -%}
+            {{ {'type': 'template', 'content': chore['name'], 'icon': 'mdi:timer-sand', 'icon_color': 'disabled',
+              'tap_action': {'action': 'none'}} }},
+          {%- else -%}
+            {{ {'type': 'template', 'content': chore['name'],
+              'icon': 'mdi:alert-circle-outline' if chore['state'] == 'overdue' else 'mdi:checkbox-blank-circle-outline',
+              'icon_color': 'red' if chore['state'] == 'overdue' else 'amber',
+              'tap_action': {'action': 'perform-action', 'perform_action': 'button.press', 'target': {'entity_id': claim}}
+                if claim else {'action': 'none'}} }},
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if more > 0 -%}
+            {{ {'type': 'template', 'content': '+%d more' | format(more), 'tap_action': {'action': 'none'}} }},
+        {%- elif not shown -%}
+            {{ {'type': 'template', 'content': 'Nothing due', 'icon': 'mdi:check-circle-outline', 'icon_color': 'green',
+              'tap_action': {'action': 'none'}} }},
+        {%- endif -%}
+          ], 'card_mod': {{ {'style': chip_style ~ (claimed_style | format((shown | count) - claimed + 1, shown | count)
+            if claimed else '')} }} },
+        ]},
+      {%- endfor -%}
   grid_options:
     columns: full
     rows: 4

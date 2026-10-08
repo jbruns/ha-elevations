@@ -9,6 +9,7 @@ from testing.displays import (
     assert_entities_documented,
     async_render_templates,
     custom_card_types,
+    referenced_entities,
 )
 
 
@@ -33,6 +34,14 @@ def test_display_seam_fails_on_an_undocumented_entity() -> None:
 
     with pytest.raises(AssertionError, match="light.example"):
         assert_entities_documented(rendered, display)
+
+
+def test_display_seam_does_not_mistake_an_action_in_a_template_for_an_entity() -> None:
+    rendered = {
+        "template": "{{ {'perform_action': 'button.press', 'target': {'entity_id': states('sensor.example')}} }}"
+    }
+
+    assert referenced_entities(rendered) == {"sensor.example"}
 
 
 def test_display_seam_groups_mushroom_card_types_by_repository() -> None:

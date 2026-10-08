@@ -15,6 +15,8 @@ from homeassistant.setup import async_setup_component
 from scripts.render_assets import load_overlay, render_display, render_text
 
 ENTITY = re.compile(r"\b[a-z_]+\.[a-z0-9_]+\b")
+# A template that builds a card may name an action, such as 'perform_action': 'button.press'.
+ACTION = re.compile(r"""['"]perform_action['"]\s*:\s*['"][a-z_]+\.[a-z0-9_]+['"]""")
 
 
 @dataclass(frozen=True)
@@ -100,7 +102,7 @@ def referenced_entities(rendered: dict[str, Any]) -> set[str]:
                         elif isinstance(item, dict) and isinstance(item.get("entity"), str):
                             found.add(item["entity"])
         elif isinstance(node, str) and ("{{" in node or "{%" in node):
-            found.update(ENTITY.findall(node))
+            found.update(ENTITY.findall(ACTION.sub("", node)))
     return found
 
 

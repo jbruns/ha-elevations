@@ -1,6 +1,10 @@
 # Copy to wallboard.local.yaml and replace placeholders with this home's real values.
 APPOINTMENTS_CALENDAR: calendar.example_appointments
 BIRTHDAYS_CALENDAR: calendar.example_birthdays
+CHILD_A_CHOREOPS_DASHBOARD_HELPER: sensor.example_child_a_choreops_ui_dashboard_helper
+CHILD_A_NAME: Child A
+CHILD_B_CHOREOPS_DASHBOARD_HELPER: sensor.example_child_b_choreops_ui_dashboard_helper
+CHILD_B_NAME: Child B
 COLLECTION_CALENDAR: calendar.example_collection
 DISHWASHER_POWER_SENSOR: sensor.example_dishwasher_power
 DRYER_POWER_SENSOR: sensor.example_dryer_power

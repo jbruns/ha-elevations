@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -6,6 +7,7 @@ from urllib.parse import urljoin
 import pytest
 import yaml
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.template import Template
 from homeassistant.setup import async_setup_component
 
 from scripts.render_assets import load_overlay, render_text
@@ -169,6 +171,54 @@ def month_calendar_card(display: dict[str, Any]) -> dict[str, Any]:
     return calendar
 
 
+def chores_card(display: dict[str, Any]) -> dict[str, Any]:
+    _, _, rail = wallboard_home(display)["sections"]
+    for card in rail["cards"]:
+        if "sensor.example_child_a_choreops_ui_dashboard_helper" in card.get("filter", {}).get("template", ""):
+            return card
+    raise AssertionError("Wallboard rail does not include the Chores card")
+
+
+def set_child_chores(hass: HomeAssistant, child: str, chores: list[tuple[str, str, str]]) -> None:
+    # ChoreOps publishes each child's Chores on a dashboard helper, and each Chore on a status sensor.
+    listed = []
+    for slug, name, state in chores:
+        status = f"sensor.example_{child}_chore_status_{slug}"
+        hass.states.async_set(
+            status,
+            state,
+            {
+                "chore_name": name,
+                "claim_button_eid": f"button.example_{child}_claim_chore_{slug}",
+                "approve_button_eid": f"button.example_{child}_approve_chore_{slug}",
+                "disapprove_button_eid": f"button.example_{child}_disapprove_chore_{slug}",
+            },
+        )
+        group = "this_week" if slug.endswith("_later") else "today"
+        listed.append({"eid": status, "name": name, "state": state, "labels": [], "primary_group": group})
+    hass.states.async_set(f"sensor.example_{child}_choreops_ui_dashboard_helper", "available", {"chores": listed})
+
+
+def children_chores(hass: HomeAssistant, display: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(Template(chores_card(display)["filter"]["template"], hass).async_render())
+
+
+def child_chips_card(child: dict[str, Any]) -> dict[str, Any]:
+    [chips] = [card for card in child["cards"] if card["type"] == "custom:mushroom-chips-card"]
+    return chips
+
+
+def child_chips(child: dict[str, Any]) -> list[dict[str, Any]]:
+    return child_chips_card(child)["chips"]
+
+
+def faded_chip_positions(chips_card: dict[str, Any]) -> set[int]:
+    faded = set()
+    for first, last in re.findall(r"nth-child\(n\+(\d+)\):nth-child\(-n\+(\d+)\) \{ opacity: 0\.45; \}", chips_card["card_mod"]["style"]):
+        faded.update(range(int(first), int(last) + 1))
+    return faded
+
+
 def section_rows(section: dict[str, Any]) -> int:
     return max(
         packed_rows([card for card in section["cards"] if card_visible(card, states, now)])
@@ -328,7 +378,19 @@ async def test_wallboard_display_seam_renders_every_home_assistant_template(
 
     rendered = await async_render_templates(hass, display)
 
-    assert rendered == []
+    assert rendered
+    assert all(isinstance(value, str) for value in rendered)
+
+
+async def test_wallboard_shows_chores_for_each_child(hass: HomeAssistant, display: dict[str, Any]) -> None:
+    set_child_chores(hass, "child_a", [("make_bed", "Make bed", "overdue")])
+    set_child_chores(hass, "child_b", [])
+
+    child_a, child_b = children_chores(hass, display)
+
+    assert [card["heading"] for card in (child_a["cards"][0], child_b["cards"][0])] == ["Child A", "Child B"]
+    assert [chip["content"] for chip in child_chips(child_a)] == ["Make bed"]
+    assert [chip["content"] for chip in child_chips(child_b)] == ["Nothing due"]
 
 
 async def test_wallboard_package_reports_unlocked_entries(hass: HomeAssistant) -> None:
@@ -410,3 +472,99 @@ def test_wallboard_rail_lists_use_only_the_built_in_todo_list_card(display: dict
 
     assert len(list_cards) == 3
     assert {card["type"] for card in list_cards} == {"todo-list"}
+
+
+async def test_wallboard_lists_overdue_chores_first_then_due_today_up_to_six(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    set_child_chores(
+        hass,
+        "child_a",
+        [
+            ("feed_fish", "Feed fish", "pending"),
+            ("make_bed", "Make bed", "overdue"),
+            ("tidy_room", "Tidy room", "due"),
+            ("set_table", "Set table", "approved"),
+            ("shower", "Shower", "overdue"),
+            ("mow_lawn_later", "Mow lawn", "pending"),
+            ("water_plants", "Water plants", "due"),
+            ("brush_teeth", "Brush teeth", "claimed"),
+            ("pack_bag", "Pack bag", "overdue"),
+        ],
+    )
+    set_child_chores(hass, "child_b", [])
+
+    child_a, _ = children_chores(hass, display)
+
+    assert [chip["content"] for chip in child_chips(child_a)] == [
+        "Make bed",
+        "Shower",
+        "Pack bag",
+        "Feed fish",
+        "Tidy room",
+        "Water plants",
+        "+1 more",
+    ]
+
+
+async def test_wallboard_claims_a_chore_on_tap_without_confirmation(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    set_child_chores(hass, "child_a", [("make_bed", "Make bed", "overdue")])
+    set_child_chores(hass, "child_b", [("tidy_room", "Tidy room", "due")])
+
+    child_a, child_b = children_chores(hass, display)
+
+    assert [chip["tap_action"] for chip in child_chips(child_a) + child_chips(child_b)] == [
+        {
+            "action": "perform-action",
+            "perform_action": "button.press",
+            "target": {"entity_id": "button.example_child_a_claim_chore_make_bed"},
+        },
+        {
+            "action": "perform-action",
+            "perform_action": "button.press",
+            "target": {"entity_id": "button.example_child_b_claim_chore_tidy_room"},
+        },
+    ]
+
+
+async def test_wallboard_greys_a_claimed_chore_until_it_is_approved(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    set_child_chores(
+        hass,
+        "child_a",
+        [("brush_teeth", "Brush teeth", "claimed"), ("make_bed", "Make bed", "overdue")],
+    )
+    set_child_chores(hass, "child_b", [("tidy_room", "Tidy room", "approved")])
+
+    child_a, child_b = children_chores(hass, display)
+    make_bed, brush_teeth = child_chips(child_a)
+
+    assert brush_teeth["content"] == "Brush teeth"
+    assert brush_teeth["icon_color"] == "disabled"
+    assert brush_teeth["tap_action"] == {"action": "none"}
+    assert faded_chip_positions(child_chips_card(child_a)) == {2}
+    assert make_bed["icon_color"] == "red"
+    assert [chip["content"] for chip in child_chips(child_b)] == ["Nothing due"]
+
+
+async def test_wallboard_leaves_chore_approvals_off_the_board(hass: HomeAssistant, display: dict[str, Any]) -> None:
+    set_child_chores(
+        hass,
+        "child_a",
+        [("brush_teeth", "Brush teeth", "claimed"), ("make_bed", "Make bed", "overdue")],
+    )
+    set_child_chores(hass, "child_b", [("tidy_room", "Tidy room", "due")])
+
+    shown = repr(children_chores(hass, display)) + repr(chores_card(display))
+
+    assert "approve" not in shown
+
+
+async def test_wallboard_chore_cards_are_in_the_manifest(hass: HomeAssistant, display: dict[str, Any]) -> None:
+    set_child_chores(hass, "child_a", [("make_bed", "Make bed", "overdue")])
+    set_child_chores(hass, "child_b", [])
+
+    assert_custom_cards_listed({"cards": children_chores(hass, display)}, CUSTOM_CARDS)
