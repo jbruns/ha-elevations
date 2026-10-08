@@ -1,45 +1,24 @@
 # The Wallboard is assembled from one source file per view and section.
+kiosk_mode:
+  hide_header: true
+  hide_sidebar: true
 views:
 - home.yaml
 prerequisites:
   entities:
-  - binary_sensor.example_exterior_doors
-  - binary_sensor.example_immediate_hazards
-  - binary_sensor.wallboard_any_entry_unlocked
-  - binary_sensor.wallboard_dishwasher_active
-  - binary_sensor.wallboard_dryer_active
-  - binary_sensor.wallboard_washer_active
   - calendar.example_appointments
   - calendar.example_birthdays
+  - calendar.example_collection
   - calendar.example_family
   - calendar.example_school_closures
-  - calendar.example_school_lunch
   - calendar.example_trips_breaks
   - calendar.example_us_holidays
-  - climate.example_thermostat
-  - cover.example_garage_door
-  - input_select.example_child_a_special_class
-  - input_select.example_child_b_special_class
-  - input_select.example_school_day
   - lock.example_front_entry
   - lock.example_garage_entry
   - lock.example_side_entry
-  - person.example_adult_a
-  - person.example_adult_b
-  - sensor.example_child_a_chores
-  - sensor.example_child_a_points
-  - sensor.example_child_b_chores
-  - sensor.example_child_b_points
   - sensor.example_dishwasher_power
   - sensor.example_dryer_power
-  - sensor.example_hourly_weather_forecast
-  - sensor.example_outdoor_aqi
-  - sensor.example_sunrise_time
-  - sensor.example_sunset_time
   - sensor.example_washer_power
-  - sensor.wallboard_unlocked_entries
-  - todo.example_family_reminders
-  - todo.example_shopping_list
   - weather.example
 support_packages:
 - package.yaml

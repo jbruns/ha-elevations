@@ -16,6 +16,9 @@ custom_cards:
   button-card:
     repository: custom-cards/button-card
     installed_version: v7.0.1
+  card-mod:
+    repository: thomasloven/lovelace-card-mod
+    installed_version: v4.2.1
   clock-weather-card:
     repository: pkissling/clock-weather-card
     installed_version: v2.9.5

@@ -1,0 +1,28 @@
+# Rail: about 1/3 of the width, right of the Household Schedule.
+type: grid
+column_span: 1
+cards:
+# #58 replaces this placeholder with Today and Countdowns.
+- type: markdown
+  content: |-
+    ### Today
+    Today and Countdowns will appear here.
+  grid_options:
+    columns: full
+    rows: 4
+# #59 replaces this placeholder with Chores and Claim.
+- type: markdown
+  content: |-
+    ### Chores
+    Chores and Claims will appear here.
+  grid_options:
+    columns: full
+    rows: 4
+# #60 replaces this placeholder with Reminders and Shopping Items.
+- type: markdown
+  content: |-
+    ### Lists
+    Reminders and Shopping Items will appear here.
+  grid_options:
+    columns: full
+    rows: 4

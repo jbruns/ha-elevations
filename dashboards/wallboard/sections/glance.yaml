@@ -1,0 +1,12 @@
+# Glance band: full width, about 18% of a 1080p screen.
+type: grid
+column_span: 3
+cards:
+# #56 replaces this placeholder with Attention Items readable from 3 m.
+- type: markdown
+  content: |-
+    ### Glance band
+    Attention Items will appear here.
+  grid_options:
+    columns: full
+    rows: 3
