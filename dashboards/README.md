@@ -31,17 +31,28 @@ uv run python scripts/render-asset.py template \
   --output dashboards/wallboard/build/package.yaml
 ```
 
-`wallboard/package.yaml` is optional support for Wallboard-local roles. The rail shows Countdowns and school lunch; the Wallboard does not show the other roles yet:
+`wallboard/package.yaml` supports the Wallboard-local roles that the glance band and rail show:
 
 - **Unlocked Door**: `binary_sensor.wallboard_unlocked_door`, on while any door is an Unlocked Door, and `sensor.wallboard_unlocked_doors`, whose state names them, such as `Front Door, Side Door`. Household Home comes from `zone.home`, as in Climate (ADR 0005), and sunset to sunrise from `sun.sun`. The overlay names the door into the garage, which counts only while the garage door cover is open.
 - **Appliance running**: `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`. A running appliance is not an Attention Item.
 - **Finished Cycle**: `binary_sensor.wallboard_washer_finished_cycle` and `binary_sensor.wallboard_dryer_finished_cycle`. Each turns on when its appliance's running sensor turns off, after that sensor's off delay, and turns off when acknowledged, when the next load starts or after 3 hours. It survives a restart, even one in the middle of a load. The dishwasher has none.
 - **Collection Day**: `binary_sensor.wallboard_bins_out`, on from 17:00 the evening before a Collection Day until midnight. Its `bins` attribute names the bins once each, such as `Recycle + Solid Waste`, from the Collection calendar's all-day events.
+- **Now/Next**: `sensor.wallboard_now_next`, whose `events` attribute lists the timed events from all Household Schedule calendars through tomorrow, soonest first, each with `title`, `start` and `end` in local time. All-day events are left out. It refreshes every 5 minutes and at startup.
 - **Countdown**: `sensor.wallboard_countdowns`, whose `countdowns` attribute lists up to four, soonest first, each with `title`, `date` and `days`. It counts trips and breaks and the holidays listed in the overlay's `COUNTDOWN_HOLIDAYS` within 90 days, and birthdays within 30. A Countdown drops off once its event starts.
 - **School lunch**: `sensor.wallboard_school_lunch`, whose `today` and `tomorrow` attributes name that day's school lunch from the lunch calendar's all-day events, without a leading `Lunch:`. Either is empty on a day without one.
 - **Acknowledge**: a card taps `script.wallboard_acknowledge` with `attention_item` set to a Finished Cycle or `binary_sensor.wallboard_bins_out` to clear it. Bins out stays cleared until the next Collection Day's evening.
 
 The package uses the same overlay as the Display. Nothing outside the Wallboard may read those Wallboard-local entities (ADR 0010).
+
+### Glance band
+
+The glance band fills the top three rows, about 18% of a 1080p screen, in type sized to read from 3 m:
+
+- **Clock**: the time and date, with small Madrid and London clocks.
+- **Now/Next**: the timed event happening now and when it ends, then the next one today: "in 45 min" within the hour, otherwise "at 6:30". With nothing left today it says so and shows tomorrow's first timed event.
+- **Weather**: the current condition and temperature, an hourly strip, and the outdoor AQI as a quiet value that turns red above 100. AQI is never an Attention Item: Safety owns a Limit Breach.
+- **Attention strip**: one chip per Attention Item, most severe first: Immediate Hazard (Safety role), Exterior Door (Climate role), garage door open, Unlocked Door, Finished Cycle, bins out. Tapping a Finished Cycle or bins out chip acknowledges it. The strip hides when nothing needs attention; when it is full, the least severe items drop off the end.
+- **Running appliances**: a quiet icon for each running washer, dryer or dishwasher, hidden when none run.
 
 ### Today and Countdowns
 
@@ -58,13 +69,14 @@ ChoreOps refuses a Claim from a Home Assistant user it does not authorize for th
 ### Prerequisites
 
 - Calendars for family events, appointments, trips/breaks, birthdays, US holidays, school closures and Collection Day.
-- A weather entity for the Household Schedule forecast.
+- A weather entity with hourly forecasts, for the glance band and the Household Schedule forecast.
+- Safety's Immediate Hazards role and Climate's Exterior Doors role, groups named in the local overlay, plus an outdoor AQI sensor and a label for the garage door.
 - To-do lists for Shopping Items, Reminders and After-School Tasks, shown on the rail with the built-in to-do list card.
 - Family's School Day helpers for today and tomorrow, the Toggle helpers kept up to date by the School Day blueprint. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders on the rail.
 - Family's Special Class helper for each child, kept up to date by the Special Classes blueprint, and a school lunch calendar with one all-day event per School Day, for the Today card.
 - Door locks, the garage door cover and appliance power sensors named in the local overlay, plus `sun.sun` and `zone.home`, for the Wallboard support package above.
 - ChoreOps, with a dashboard helper sensor for each child named in the local overlay.
-- Custom cards listed in `custom-cards.yaml`: week-planner-card, auto-entities, Mushroom, card-mod and kiosk-mode.
+- Custom cards listed in `custom-cards.yaml`: week-planner-card, auto-entities, Mushroom, card-mod, kiosk-mode, better-moment-card and hourly-weather.
 - The Wallboard base theme in `wallboard/themes/wallboard.yaml`, selected in the kiosk browser's profile.
 
 ### Install
@@ -73,7 +85,7 @@ ChoreOps refuses a Claim from a Home Assistant user it does not authorize for th
 2. Check that the Wallboard-local role entities listed above exist and update.
 3. Paste the rendered `wallboard/build/wallboard.yaml` into the raw configuration editor of a new storage dashboard, alongside the current Wallboard. Do not paste over the current Wallboard until cutover.
 4. Copy `wallboard/themes/wallboard.yaml` into Home Assistant's themes folder, run **Reload themes**, then select the **Wallboard** theme in the kiosk browser's profile. The view pins no theme (ADR 0011). This base theme only widens the sections view columns so the three columns fill a 1920px screen; everything else keeps Home Assistant's defaults. Seasonal Look themes will build on it.
-5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling. Tap the Household Schedule heading: Month opens as a month grid without scrolling, and its heading returns to the main view.
+5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling. The glance band shows the clocks, Now/Next, weather and AQI; the Attention strip is absent when nothing needs attention. Tap the Household Schedule heading: Month opens as a month grid without scrolling, and its heading returns to the main view.
 6. On the rail, add an item through each list's add field with the touch keyboard, and check that it appears in the matching to-do list.
 
 ## Our Home

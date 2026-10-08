@@ -30,3 +30,7 @@ FAMILY_REMINDERS_TODO: todo.example_family_reminders
 AFTER_SCHOOL_TASKS_TODO: todo.example_after_school_tasks
 TODAY_SCHOOL_DAY_HELPER: input_boolean.example_school_day_today
 TOMORROW_SCHOOL_DAY_HELPER: input_boolean.example_school_day_tomorrow
+SAFETY_IMMEDIATE_HAZARDS_ROLE: binary_sensor.example_immediate_hazards
+CLIMATE_EXTERIOR_DOORS_ROLE: binary_sensor.example_exterior_doors
+GARAGE_DOOR_LABEL: Garage Door
+OUTDOOR_AQI_SENSOR: sensor.example_outdoor_aqi

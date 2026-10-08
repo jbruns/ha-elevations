@@ -8,6 +8,7 @@ import pytest
 import yaml
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
+from homeassistant.util import dt as dt_util
 
 from testing.clock import Clock
 from testing.displays import (
@@ -698,3 +699,299 @@ def test_wallboard_countdowns_are_hidden_when_there_are_none(display: dict[str, 
 
     assert not card_visible(card, {COUNTDOWNS: "0"}, now)
     assert card_visible(card, {COUNTDOWNS: "1"}, now)
+
+
+# Glance band
+
+
+def glance_section(display: dict[str, Any]) -> dict[str, Any]:
+    return wallboard_home(display)["sections"][0]
+
+
+def glance_card(display: dict[str, Any], card_type: str, marker: str = "") -> dict[str, Any]:
+    [card] = [
+        card
+        for card in glance_section(display)["cards"]
+        if card["type"] == card_type and marker in repr(card)
+    ]
+    return card
+
+
+def render(hass: HomeAssistant, template: str) -> Any:
+    return Template(template, hass).async_render()
+
+
+def lines(rendered: str) -> list[str]:
+    return [line.strip() for line in str(rendered).splitlines() if line.strip()]
+
+
+def test_wallboard_glance_band_shows_the_time_and_date_with_madrid_and_london_clocks(display: dict[str, Any]) -> None:
+    clock = glance_card(display, "custom:better-moment-card")
+
+    assert [moment.get("timezone") for moment in clock["moment"]] == [None, None, "Europe/Madrid", "Europe/London"]
+    assert [moment["format"] for moment in clock["moment"]][2:] == ["'Madrid' H:mm", "'London' H:mm"]
+
+
+def test_wallboard_glance_band_shows_an_hourly_forecast_strip(display: dict[str, Any]) -> None:
+    hourly = glance_card(display, "custom:hourly-weather")
+
+    assert hourly["entity"] == "weather.example"
+    assert hourly["forecast_type"] == "hourly"
+
+
+NOW_NEXT = "sensor.wallboard_now_next"
+
+
+def timed_event(title: str, start: datetime, end: datetime) -> dict[str, str]:
+    zone = dt_util.get_default_time_zone()
+    return {
+        "title": title,
+        "start": start.replace(tzinfo=zone).isoformat(),
+        "end": end.replace(tzinfo=zone).isoformat(),
+    }
+
+
+async def now_next(hass: HomeAssistant, display: dict[str, Any], clock: Clock, at: datetime, events: list[dict[str, str]]) -> list[str]:
+    await clock.move_to(at)
+    hass.states.async_set(NOW_NEXT, str(len(events)), {"events": events})
+    return lines(render(hass, glance_card(display, "markdown", NOW_NEXT)["content"]))
+
+
+async def test_wallboard_now_next_shows_the_event_under_way_and_the_next_one(
+    hass: HomeAssistant, display: dict[str, Any], clock: Clock
+) -> None:
+    shown = await now_next(
+        hass,
+        display,
+        clock,
+        datetime(2026, 10, 8, 14, 15),
+        [
+            timed_event("Lunch", datetime(2026, 10, 8, 12, 0), datetime(2026, 10, 8, 13, 0)),
+            timed_event("Dentist", datetime(2026, 10, 8, 14, 0), datetime(2026, 10, 8, 15, 0)),
+            timed_event("Soccer practice", datetime(2026, 10, 8, 15, 0), datetime(2026, 10, 8, 16, 0)),
+            timed_event("Bake sale", datetime(2026, 10, 9, 8, 0), datetime(2026, 10, 9, 9, 0)),
+        ],
+    )
+
+    assert shown == ["Now: Dentist · until 3:00", "Next: Soccer practice · in 45 min"]
+
+
+async def test_wallboard_now_next_gives_the_time_of_a_next_event_an_hour_or_more_away(
+    hass: HomeAssistant, display: dict[str, Any], clock: Clock
+) -> None:
+    shown = await now_next(
+        hass,
+        display,
+        clock,
+        datetime(2026, 10, 8, 14, 15),
+        [timed_event("Curriculum night", datetime(2026, 10, 8, 18, 30), datetime(2026, 10, 8, 20, 0))],
+    )
+
+    assert shown == ["Next: Curriculum night · at 6:30"]
+
+
+async def test_wallboard_now_next_shows_tomorrows_first_event_once_today_is_done(
+    hass: HomeAssistant, display: dict[str, Any], clock: Clock
+) -> None:
+    shown = await now_next(
+        hass,
+        display,
+        clock,
+        datetime(2026, 10, 8, 21, 0),
+        [
+            timed_event("Soccer practice", datetime(2026, 10, 8, 17, 0), datetime(2026, 10, 8, 19, 0)),
+            timed_event("Bake sale", datetime(2026, 10, 9, 8, 0), datetime(2026, 10, 9, 9, 0)),
+            timed_event("Piano", datetime(2026, 10, 9, 16, 0), datetime(2026, 10, 9, 17, 0)),
+        ],
+    )
+
+    assert shown == ["Nothing else today · Tomorrow: 8:00 Bake sale"]
+
+
+async def test_wallboard_now_next_says_nothing_else_today_when_tomorrow_is_clear(
+    hass: HomeAssistant, display: dict[str, Any], clock: Clock
+) -> None:
+    shown = await now_next(
+        hass,
+        display,
+        clock,
+        datetime(2026, 10, 8, 14, 15),
+        [timed_event("Dentist", datetime(2026, 10, 8, 14, 0), datetime(2026, 10, 8, 15, 0))],
+    )
+
+    assert shown == ["Now: Dentist · until 3:00", "Nothing else today"]
+
+
+async def test_wallboard_now_next_names_the_day_an_event_under_way_ends(
+    hass: HomeAssistant, display: dict[str, Any], clock: Clock
+) -> None:
+    shown = await now_next(
+        hass,
+        display,
+        clock,
+        datetime(2026, 10, 8, 21, 0),
+        [timed_event("Overnight camp", datetime(2026, 10, 8, 18, 0), datetime(2026, 10, 9, 10, 0))],
+    )
+
+    assert shown == ["Now: Overnight camp · until Fri 10:00", "Nothing else today"]
+
+
+AQI = "sensor.example_outdoor_aqi"
+
+
+async def current_weather(hass: HomeAssistant, display: dict[str, Any], aqi: str) -> str:
+    hass.states.async_set("weather.example", "partlycloudy", {"temperature": 69, "temperature_unit": "°F"})
+    hass.states.async_set(AQI, aqi)
+    return str(render(hass, glance_card(display, "markdown", AQI)["content"]))
+
+
+async def test_wallboard_glance_band_shows_current_weather_and_a_quiet_aqi(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    shown = await current_weather(hass, display, "41")
+
+    assert "mdi:weather-partly-cloudy" in shown
+    assert "69°" in shown
+    assert "Partly cloudy" in shown
+    assert "AQI 41" in shown
+    assert "<font" not in shown
+
+
+async def test_wallboard_glance_band_shows_aqi_in_red_above_100(hass: HomeAssistant, display: dict[str, Any]) -> None:
+    assert '<font color="#db4437">AQI 101</font>' in await current_weather(hass, display, "101")
+    assert "<font" not in await current_weather(hass, display, "100")
+
+
+async def test_wallboard_glance_band_never_makes_aqi_an_attention_item(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    hass.states.async_set(AQI, "250")
+
+    assert attention_items(hass, display) == []
+
+
+HAZARDS = "binary_sensor.example_immediate_hazards"
+EXTERIOR_DOORS = "binary_sensor.example_exterior_doors"
+WASHER_FINISHED = "binary_sensor.wallboard_washer_finished_cycle"
+DRYER_FINISHED = "binary_sensor.wallboard_dryer_finished_cycle"
+BINS_OUT = "binary_sensor.wallboard_bins_out"
+
+
+def attention_strip(display: dict[str, Any]) -> dict[str, Any]:
+    return glance_card(display, "custom:auto-entities", HAZARDS)
+
+
+def attention_items(hass: HomeAssistant, display: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(render(hass, attention_strip(display)["filter"]["template"]) or [])
+
+
+def set_every_attention_item(hass: HomeAssistant) -> None:
+    hass.states.async_set("binary_sensor.example_smoke", "on", {"friendly_name": "Smoke"})
+    hass.states.async_set("binary_sensor.example_leak", "off", {"friendly_name": "Leak"})
+    hass.states.async_set(HAZARDS, "on", {"entity_id": ["binary_sensor.example_smoke", "binary_sensor.example_leak"]})
+    hass.states.async_set("binary_sensor.example_front_door_open", "on", {"friendly_name": "Front Door"})
+    hass.states.async_set("binary_sensor.example_deck_door_open", "on", {"friendly_name": "Deck Door"})
+    hass.states.async_set(
+        EXTERIOR_DOORS,
+        "on",
+        {"entity_id": ["binary_sensor.example_front_door_open", "binary_sensor.example_deck_door_open"]},
+    )
+    hass.states.async_set("cover.example_garage_door", "open")
+    hass.states.async_set("binary_sensor.wallboard_unlocked_door", "on")
+    hass.states.async_set("sensor.wallboard_unlocked_doors", "Front Door, Side Door")
+    hass.states.async_set(WASHER_FINISHED, "on")
+    hass.states.async_set(DRYER_FINISHED, "on")
+    hass.states.async_set(BINS_OUT, "on", {"bins": "Recycle + Solid Waste"})
+
+
+def test_wallboard_attention_strip_is_hidden_when_empty(hass: HomeAssistant, display: dict[str, Any]) -> None:
+    strip = attention_strip(display)
+
+    assert strip["show_empty"] is False
+    assert attention_items(hass, display) == []
+
+
+def test_wallboard_attention_strip_lists_attention_items_most_severe_first(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    set_every_attention_item(hass)
+
+    assert [item["content"] for item in attention_items(hass, display)] == [
+        "Smoke",
+        "Front Door, Deck Door open",
+        "Garage Door open",
+        "Front Door, Side Door unlocked",
+        "Unload washer",
+        "Unload dryer",
+        "Bins out: Recycle + Solid Waste",
+    ]
+
+
+@pytest.mark.parametrize("state", ["open", "opening", "closing"])
+def test_wallboard_garage_door_is_an_attention_item_until_it_is_closed(
+    hass: HomeAssistant, display: dict[str, Any], state: str
+) -> None:
+    hass.states.async_set("cover.example_garage_door", state)
+
+    assert [item["content"] for item in attention_items(hass, display)] == ["Garage Door open"]
+
+
+def test_wallboard_a_tap_clears_a_finished_cycle_or_bins_out(hass: HomeAssistant, display: dict[str, Any]) -> None:
+    set_every_attention_item(hass)
+
+    taps = {item["content"]: item["tap_action"] for item in attention_items(hass, display)}
+
+    assert {content: tap for content, tap in taps.items() if tap["action"] != "none"} == {
+        content: {
+            "action": "perform-action",
+            "perform_action": "script.wallboard_acknowledge",
+            "data": {"attention_item": attention_item},
+        }
+        for content, attention_item in [
+            ("Unload washer", WASHER_FINISHED),
+            ("Unload dryer", DRYER_FINISHED),
+            ("Bins out: Recycle + Solid Waste", BINS_OUT),
+        ]
+    }
+
+
+RUNNING = {
+    "binary_sensor.wallboard_washer_active": "mdi:washing-machine",
+    "binary_sensor.wallboard_dryer_active": "mdi:tumble-dryer",
+    "binary_sensor.wallboard_dishwasher_active": "mdi:dishwasher",
+}
+
+
+def running_indicators(hass: HomeAssistant, display: dict[str, Any]) -> list[dict[str, Any]]:
+    card = glance_card(display, "custom:auto-entities", "binary_sensor.wallboard_dishwasher_active")
+    assert card["show_empty"] is False
+    return list(render(hass, card["filter"]["template"]) or [])
+
+
+def test_wallboard_shows_running_appliances_quietly_not_as_attention_items(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    assert running_indicators(hass, display) == []
+
+    for running in RUNNING:
+        hass.states.async_set(running, "on")
+
+    indicators = running_indicators(hass, display)
+    assert [indicator["icon"] for indicator in indicators] == list(RUNNING.values())
+    assert all(indicator["tap_action"] == {"action": "none"} for indicator in indicators)
+    assert attention_items(hass, display) == []
+
+
+def test_wallboard_glance_band_is_three_rows_whether_or_not_attention_items_show(display: dict[str, Any]) -> None:
+    glance = glance_section(display)
+    strips = [card for card in glance["cards"] if card["type"] == "custom:auto-entities"]
+    others = [card for card in glance["cards"] if card not in strips]
+
+    assert section_rows(glance) == 3
+    assert packed_rows(others) == 3
+
+
+async def test_wallboard_glance_band_cards_are_in_the_manifest(hass: HomeAssistant, display: dict[str, Any]) -> None:
+    set_every_attention_item(hass)
+
+    assert_custom_cards_listed({"cards": [attention_strip(display)] + attention_items(hass, display)}, CUSTOM_CARDS)

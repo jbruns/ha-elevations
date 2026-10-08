@@ -247,3 +247,47 @@ template:
             {% set ns.unlocked = ns.unlocked + [label] %}
           {% endfor %}
           {{ ns.unlocked | join(', ') }}
+
+  # Now/Next: timed events from the Household Schedule calendars, from now
+  # through tomorrow, soonest first, in local time. All-day events don't count.
+  # The glance band works out Now and Next from these each minute.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: /5
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id:
+            - {FAMILY_CALENDAR}
+            - {APPOINTMENTS_CALENDAR}
+            - {TRIPS_BREAKS_CALENDAR}
+            - {BIRTHDAYS_CALENDAR}
+            - {US_HOLIDAYS_CALENDAR}
+            - {SCHOOL_CLOSURES_CALENDAR}
+            - {COLLECTION_CALENDAR}
+        data:
+          start_date_time: "{{ now().isoformat() }}"
+          end_date_time: "{{ (today_at() + timedelta(days=2)).isoformat() }}"
+        response_variable: schedule
+      - variables:
+          events: >-
+            {% set ns = namespace(events=[]) %}
+            {% for calendar in schedule.values() %}
+              {% for event in calendar.events if 'T' in event.start %}
+                {% set ns.events = ns.events + [{
+                  'title': event.summary,
+                  'start': (as_datetime(event.start) | as_local).isoformat(),
+                  'end': (as_datetime(event.end) | as_local).isoformat(),
+                }] %}
+              {% endfor %}
+            {% endfor %}
+            {{ ns.events | sort(attribute='start') }}
+    sensor:
+      - name: "Wallboard Now Next"
+        unique_id: wallboard_now_next
+        icon: mdi:calendar-clock
+        state: "{{ events | count }}"
+        attributes:
+          events: "{{ events }}"
