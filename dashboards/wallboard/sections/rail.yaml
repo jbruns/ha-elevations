@@ -37,8 +37,8 @@ cards:
   - condition: or
     conditions:
     - condition: state
-      entity: '{SCHOOL_DAY_DROPDOWN}'
-      state_not: 'true'
+      entity: '{TODAY_SCHOOL_DAY_HELPER}'
+      state_not: 'on'
     - condition: time
       before: '12:00'
   grid_options:
@@ -51,8 +51,8 @@ cards:
   hide_section_headers: true
   visibility:
   - condition: state
-    entity: '{SCHOOL_DAY_DROPDOWN}'
-    state: 'true'
+    entity: '{TODAY_SCHOOL_DAY_HELPER}'
+    state: 'on'
   - condition: time
     after: '12:00'
   grid_options:

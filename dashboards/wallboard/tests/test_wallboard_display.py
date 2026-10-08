@@ -72,11 +72,11 @@ def week_planner_card(display: dict[str, Any]) -> dict[str, Any]:
 
 
 SECTION_GRID_COLUMNS = 12
-SCHOOL_DAY = "input_select.example_school_day"
+SCHOOL_DAY = "input_boolean.example_school_day_today"
 # A weekday morning and afternoon, on and off a School Day.
 WALLBOARD_MOMENTS = [
     ({SCHOOL_DAY: school_day}, datetime(2026, 10, 7, hour, 0))
-    for school_day in ("true", "false")
+    for school_day in ("on", "off")
     for hour in (8, 15)
 ]
 
@@ -87,12 +87,8 @@ def card_visible(card: dict[str, Any], states: dict[str, str], now: datetime) ->
 
 def condition_holds(condition: dict[str, Any], states: dict[str, str], now: datetime) -> bool:
     kind = condition["condition"]
-    if kind == "and":
-        return all(condition_holds(c, states, now) for c in condition["conditions"])
     if kind == "or":
         return any(condition_holds(c, states, now) for c in condition["conditions"])
-    if kind == "not":
-        return not any(condition_holds(c, states, now) for c in condition["conditions"])
     if kind == "state":
         state = states[condition["entity"]]
         if "state" in condition:
@@ -101,8 +97,7 @@ def condition_holds(condition: dict[str, Any], states: dict[str, str], now: date
     if kind == "time":
         after = time.fromisoformat(condition.get("after", "00:00"))
         before = time.fromisoformat(condition.get("before", "23:59:59"))
-        weekdays = condition.get("weekdays", [now.strftime("%a").lower()])
-        return after <= now.time() < before and now.strftime("%a").lower() in weekdays
+        return after <= now.time() < before
     raise AssertionError(f"unsupported visibility condition: {kind}")
 
 
@@ -297,10 +292,10 @@ def test_wallboard_rail_shows_after_school_tasks_only_on_school_day_afternoons(d
     }
 
     assert shown == {
-        ("true", 8): ["Family Reminders", "Shopping List"],
-        ("true", 15): ["After-School Tasks", "Shopping List"],
-        ("false", 8): ["Family Reminders", "Shopping List"],
-        ("false", 15): ["Family Reminders", "Shopping List"],
+        ("on", 8): ["Family Reminders", "Shopping List"],
+        ("on", 15): ["After-School Tasks", "Shopping List"],
+        ("off", 8): ["Family Reminders", "Shopping List"],
+        ("off", 15): ["Family Reminders", "Shopping List"],
     }
 
 

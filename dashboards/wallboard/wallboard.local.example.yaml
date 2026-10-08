@@ -19,4 +19,4 @@ SIDE_ENTRY_LABEL: Side Entry
 SHOPPING_LIST_TODO: todo.example_shopping_list
 FAMILY_REMINDERS_TODO: todo.example_family_reminders
 AFTER_SCHOOL_TASKS_TODO: todo.example_after_school_tasks
-SCHOOL_DAY_DROPDOWN: input_select.example_school_day
+TODAY_SCHOOL_DAY_HELPER: input_boolean.example_school_day_today
