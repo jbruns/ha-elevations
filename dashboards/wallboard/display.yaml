@@ -13,12 +13,16 @@ prerequisites:
   - calendar.example_school_closures
   - calendar.example_trips_breaks
   - calendar.example_us_holidays
+  - input_boolean.example_school_day_today
   - lock.example_front_entry
   - lock.example_garage_entry
   - lock.example_side_entry
   - sensor.example_dishwasher_power
   - sensor.example_dryer_power
   - sensor.example_washer_power
+  - todo.example_after_school_tasks
+  - todo.example_family_reminders
+  - todo.example_shopping_list
   - weather.example
 support_packages:
 - package.yaml

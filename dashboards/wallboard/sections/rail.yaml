@@ -18,11 +18,43 @@ cards:
   grid_options:
     columns: full
     rows: 4
-# #60 replaces this placeholder with Reminders and Shopping Items.
-- type: markdown
-  content: |-
-    ### Lists
-    Reminders and Shopping Items will appear here.
+# Lists: two half-width lists in a 4-row band. On a School Day afternoon,
+# After-School Tasks takes the Family Reminders slot.
+- type: todo-list
+  entity: '{SHOPPING_LIST_TODO}'
+  title: Shopping List
+  hide_completed: true
+  hide_section_headers: true
   grid_options:
-    columns: full
+    columns: 6
+    rows: 4
+- type: todo-list
+  entity: '{FAMILY_REMINDERS_TODO}'
+  title: Family Reminders
+  hide_completed: true
+  hide_section_headers: true
+  visibility:
+  - condition: or
+    conditions:
+    - condition: state
+      entity: '{TODAY_SCHOOL_DAY_HELPER}'
+      state_not: 'on'
+    - condition: time
+      before: '12:00'
+  grid_options:
+    columns: 6
+    rows: 4
+- type: todo-list
+  entity: '{AFTER_SCHOOL_TASKS_TODO}'
+  title: After-School Tasks
+  hide_completed: true
+  hide_section_headers: true
+  visibility:
+  - condition: state
+    entity: '{TODAY_SCHOOL_DAY_HELPER}'
+    state: 'on'
+  - condition: time
+    after: '12:00'
+  grid_options:
+    columns: 6
     rows: 4
