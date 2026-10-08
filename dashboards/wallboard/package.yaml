@@ -191,6 +191,40 @@ template:
         attributes:
           countdowns: "{{ countdowns }}"
 
+  # Today's and tomorrow's school lunch from the lunch calendar's all-day
+  # events, for the rail's Today card. A leading "Lunch:" is dropped.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: /15
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id: {SCHOOL_LUNCH_CALENDAR}
+        data:
+          start_date_time: "{{ today_at().isoformat() }}"
+          end_date_time: "{{ (today_at() + timedelta(days=2)).isoformat() }}"
+        response_variable: lunches
+      - variables:
+          lunch_events: "{{ lunches['{SCHOOL_LUNCH_CALENDAR}'].events | rejectattr('start', 'search', 'T') | list }}"
+          lunch_today: >-
+            {{ lunch_events | selectattr('start', 'eq', today_at().date() | string)
+              | map(attribute='summary') | map('regex_replace', '^\\s*lunch:\\s*', '', ignorecase=true)
+              | join(' · ') }}
+          lunch_tomorrow: >-
+            {{ lunch_events | selectattr('start', 'eq', (today_at() + timedelta(days=1)).date() | string)
+              | map(attribute='summary') | map('regex_replace', '^\\s*lunch:\\s*', '', ignorecase=true)
+              | join(' · ') }}
+    sensor:
+      - name: "Wallboard School Lunch"
+        unique_id: wallboard_school_lunch
+        icon: mdi:food-apple
+        state: "{{ lunch_today[:255] }}"
+        attributes:
+          today: "{{ lunch_today }}"
+          tomorrow: "{{ lunch_tomorrow }}"
+
   - sensor:
       # Unlocked Door: between sunset and sunrise, or while not Household Home
       # (Climate's term, from zone.home as in ADR 0005). The door into the

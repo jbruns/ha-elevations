@@ -3,14 +3,17 @@ APPOINTMENTS_CALENDAR: calendar.example_appointments
 BIRTHDAYS_CALENDAR: calendar.example_birthdays
 CHILD_A_CHOREOPS_DASHBOARD_HELPER: sensor.example_child_a_choreops_ui_dashboard_helper
 CHILD_A_NAME: Child A
+CHILD_A_SPECIAL_CLASS_DROPDOWN: input_select.example_child_a_special_class
 CHILD_B_CHOREOPS_DASHBOARD_HELPER: sensor.example_child_b_choreops_ui_dashboard_helper
 CHILD_B_NAME: Child B
+CHILD_B_SPECIAL_CLASS_DROPDOWN: input_select.example_child_b_special_class
 COLLECTION_CALENDAR: calendar.example_collection
 COUNTDOWN_HOLIDAYS: ["Halloween", "Thanksgiving Day", "Christmas Day", "New Year's Day"]
 DISHWASHER_POWER_SENSOR: sensor.example_dishwasher_power
 DRYER_POWER_SENSOR: sensor.example_dryer_power
 FAMILY_CALENDAR: calendar.example_family
 SCHOOL_CLOSURES_CALENDAR: calendar.example_school_closures
+SCHOOL_LUNCH_CALENDAR: calendar.example_school_lunch
 TRIPS_BREAKS_CALENDAR: calendar.example_trips_breaks
 US_HOLIDAYS_CALENDAR: calendar.example_us_holidays
 WASHER_POWER_SENSOR: sensor.example_washer_power
@@ -26,3 +29,4 @@ SHOPPING_LIST_TODO: todo.example_shopping_list
 FAMILY_REMINDERS_TODO: todo.example_family_reminders
 AFTER_SCHOOL_TASKS_TODO: todo.example_after_school_tasks
 TODAY_SCHOOL_DAY_HELPER: input_boolean.example_school_day_today
+TOMORROW_SCHOOL_DAY_HELPER: input_boolean.example_school_day_tomorrow

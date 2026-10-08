@@ -12,10 +12,14 @@ prerequisites:
   - calendar.example_collection
   - calendar.example_family
   - calendar.example_school_closures
+  - calendar.example_school_lunch
   - calendar.example_trips_breaks
   - calendar.example_us_holidays
   - cover.example_garage_door
   - input_boolean.example_school_day_today
+  - input_boolean.example_school_day_tomorrow
+  - input_select.example_child_a_special_class
+  - input_select.example_child_b_special_class
   - lock.example_door_into_garage
   - lock.example_front_door
   - lock.example_side_door
@@ -24,6 +28,8 @@ prerequisites:
   - sensor.example_dishwasher_power
   - sensor.example_dryer_power
   - sensor.example_washer_power
+  - sensor.wallboard_countdowns
+  - sensor.wallboard_school_lunch
   - sun.sun
   - todo.example_after_school_tasks
   - todo.example_family_reminders
