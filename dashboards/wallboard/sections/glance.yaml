@@ -1,12 +1,176 @@
-# Glance band: full width, about 18% of a 1080p screen.
+# Glance band: full width, three rows (about 18% of a 1080p screen), readable from 3 m.
+# Clock | Now/Next | current weather | hourly strip, with the Attention strip
+# and running appliances beneath. Both chip rows hide when empty.
 type: grid
 column_span: 3
 cards:
-# #56 replaces this placeholder with Attention Items readable from 3 m.
+- type: custom:better-moment-card
+  parentStyle: |
+    display: grid; grid-template-columns: 1fr 1fr; line-height: normal; text-align: center;
+    grid-template-areas: 'time time' 'date date' 'madrid london';
+  moment:
+  - format: h:mm
+    parentStyle: 'grid-area: time; font-size: 4.6em; font-weight: 500;'
+  - format: cccc, LLLL d
+    parentStyle: 'grid-area: date; font-size: 1.6em;'
+  - format: "'Madrid' H:mm"
+    timezone: Europe/Madrid
+    parentStyle: 'grid-area: madrid; font-size: 1.2em; opacity: 0.75;'
+  - format: "'London' H:mm"
+    timezone: Europe/London
+    parentStyle: 'grid-area: london; font-size: 1.2em; opacity: 0.75;'
+  grid_options:
+    columns: 9
+    rows: 3
+# Now/Next: timed events only, from the Household Schedule calendars, via the
+# package's sensor.wallboard_now_next. Times compare as local ISO strings.
 - type: markdown
   content: |-
-    ### Glance band
-    Attention Items will appear here.
+    {%- set events = state_attr('sensor.wallboard_now_next', 'events') or [] -%}
+    {%- set moment = now().replace(microsecond=0).isoformat() -%}
+    {%- set tomorrow = (today_at() + timedelta(days=1)).isoformat() -%}
+    {%- set day_after = (today_at() + timedelta(days=2)).isoformat() -%}
+    {%- set current = events | selectattr('start', '<=', moment) | selectattr('end', '>', moment) | sort(attribute='end') | list -%}
+    {%- set upcoming = events | selectattr('start', '>', moment) | selectattr('start', '<', tomorrow) | list -%}
+    {%- set first_tomorrow = events | selectattr('start', '>=', tomorrow) | selectattr('start', '<', day_after) | list -%}
+    {%- if current -%}
+    Now: {{ current[0]['title'] }} · until {{ as_datetime(current[0]['end']).strftime('%a %-I:%M' if current[0]['end'] >= tomorrow else '%-I:%M') }}
+
+    {% endif -%}
+    {%- if upcoming -%}
+      {%- set minutes = ((as_timestamp(upcoming[0]['start']) - as_timestamp(now())) / 60) | round(0, 'ceil') | int -%}
+    Next: {{ upcoming[0]['title'] }} · {{ 'in %d min' | format(minutes) if minutes < 60 else 'at ' ~ as_datetime(upcoming[0]['start']).strftime('%-I:%M') }}
+    {%- elif first_tomorrow -%}
+    Nothing else today · Tomorrow: {{ as_datetime(first_tomorrow[0]['start']).strftime('%-I:%M') }} {{ first_tomorrow[0]['title'] }}
+    {%- else -%}
+    Nothing else today
+    {%- endif %}
+  card_mod:
+    style: |
+      ha-card { font-size: 1.7rem; line-height: 1.3; }
   grid_options:
-    columns: full
-    rows: 3
+    columns: 12
+    rows: 2
+# Current weather and a quiet AQI value, red above 100. AQI is never an
+# Attention Item: Safety owns a Limit Breach.
+- type: markdown
+  content: |-
+    {%- set conditions = {
+      'clear-night': ('mdi:weather-night', 'Clear'),
+      'cloudy': ('mdi:weather-cloudy', 'Cloudy'),
+      'exceptional': ('mdi:alert-circle-outline', 'Exceptional'),
+      'fog': ('mdi:weather-fog', 'Fog'),
+      'hail': ('mdi:weather-hail', 'Hail'),
+      'lightning': ('mdi:weather-lightning', 'Lightning'),
+      'lightning-rainy': ('mdi:weather-lightning-rainy', 'Thunderstorms'),
+      'partlycloudy': ('mdi:weather-partly-cloudy', 'Partly cloudy'),
+      'pouring': ('mdi:weather-pouring', 'Pouring'),
+      'rainy': ('mdi:weather-rainy', 'Rainy'),
+      'snowy': ('mdi:weather-snowy', 'Snowy'),
+      'snowy-rainy': ('mdi:weather-snowy-rainy', 'Sleet'),
+      'sunny': ('mdi:weather-sunny', 'Sunny'),
+      'windy': ('mdi:weather-windy', 'Windy'),
+      'windy-variant': ('mdi:weather-windy-variant', 'Windy'),
+    } -%}
+    {%- set condition = states('{WEATHER_ENTITY}') -%}
+    {%- set icon, label = conditions[condition] if condition in conditions else ('mdi:weather-cloudy-alert', 'Unknown') -%}
+    {%- set temperature = state_attr('{WEATHER_ENTITY}', 'temperature') -%}
+    {%- set aqi = states('{OUTDOOR_AQI_SENSOR}') -%}
+    <ha-icon icon="{{ icon }}"></ha-icon> {{ temperature | round(0) | int if is_number(temperature) else '–' }}°
+
+    {{ label }} · {{ ('<font color="#db4437">AQI %s</font>' if aqi | float(0) > 100 else 'AQI %s') | format(aqi | int if is_number(aqi) else '–') }}
+  card_mod:
+    style: |
+      ha-card { font-size: 1.5rem; line-height: 1.3; }
+      ha-card ha-markdown { --mdc-icon-size: 2.2rem; }
+  grid_options:
+    columns: 6
+    rows: 2
+- type: custom:hourly-weather
+  entity: '{WEATHER_ENTITY}'
+  forecast_type: hourly
+  name: null
+  num_segments: 8
+  label_spacing: 2
+  icons: true
+  hide_minutes: true
+  round_temperatures: true
+  show_precipitation_probability: true
+  tap_action:
+    action: none
+  grid_options:
+    columns: 9
+    rows: 2
+# Attention strip, most severe first: Immediate Hazard (Safety), Exterior Door
+# (Climate), garage door open, Unlocked Door, Finished Cycle, bins out. A tap
+# acknowledges a Finished Cycle or bins out.
+- type: custom:auto-entities
+  show_empty: false
+  card:
+    type: custom:mushroom-chips-card
+    card_mod:
+      style: |
+        ha-card { --mush-chip-height: 48px; --mush-chip-font-size: 0.45em; --mush-chip-spacing: 10px; }
+        ha-card .chip-container { flex-wrap: nowrap; overflow: hidden; }
+  card_param: chips
+  filter:
+    template: |-
+      {%- set hazards = '{SAFETY_IMMEDIATE_HAZARDS_ROLE}' -%}
+      {%- set doors = '{CLIMATE_EXTERIOR_DOORS_ROLE}' -%}
+      {%- set quiet = {'action': 'none'} -%}
+      {%- set acknowledge = {'action': 'perform-action', 'perform_action': 'script.wallboard_acknowledge'} -%}
+      {%- if is_state(hazards, 'on') -%}
+        {{ {'type': 'template', 'icon': 'mdi:alert-octagon', 'icon_color': 'red', 'tap_action': quiet,
+          'content': (state_attr(hazards, 'entity_id') or []) | select('is_state', 'on')
+            | map('state_attr', 'friendly_name') | join(', ') or 'Immediate Hazard'} }},
+      {%- endif -%}
+      {%- if is_state(doors, 'on') -%}
+        {{ {'type': 'template', 'icon': 'mdi:door-open', 'icon_color': 'orange', 'tap_action': quiet,
+          'content': ((state_attr(doors, 'entity_id') or []) | select('is_state', 'on')
+            | map('state_attr', 'friendly_name') | join(', ') or 'Exterior Door') ~ ' open'} }},
+      {%- endif -%}
+      {%- if states('{GARAGE_DOOR_COVER}') in ['open', 'opening', 'closing'] -%}
+        {{ {'type': 'template', 'icon': 'mdi:garage-open', 'icon_color': 'orange', 'tap_action': quiet,
+          'content': '{GARAGE_DOOR_LABEL} open'} }},
+      {%- endif -%}
+      {%- if is_state('binary_sensor.wallboard_unlocked_door', 'on') -%}
+        {{ {'type': 'template', 'icon': 'mdi:lock-open-alert', 'icon_color': 'orange', 'tap_action': quiet,
+          'content': states('sensor.wallboard_unlocked_doors') ~ ' unlocked'} }},
+      {%- endif -%}
+      {%- for finished, appliance, icon in [
+        ('binary_sensor.wallboard_washer_finished_cycle', 'washer', 'mdi:washing-machine-alert'),
+        ('binary_sensor.wallboard_dryer_finished_cycle', 'dryer', 'mdi:tumble-dryer-alert'),
+      ] if is_state(finished, 'on') -%}
+        {{ {'type': 'template', 'icon': icon, 'icon_color': 'amber', 'content': 'Unload ' ~ appliance,
+          'tap_action': dict(acknowledge, data={'attention_item': finished})} }},
+      {%- endfor -%}
+      {%- if is_state('binary_sensor.wallboard_bins_out', 'on') -%}
+        {{ {'type': 'template', 'icon': 'mdi:delete-empty', 'icon_color': 'amber',
+          'content': 'Bins out: ' ~ state_attr('binary_sensor.wallboard_bins_out', 'bins'),
+          'tap_action': dict(acknowledge, data={'attention_item': 'binary_sensor.wallboard_bins_out'})} }},
+      {%- endif -%}
+  grid_options:
+    columns: 21
+    rows: 1
+# Running appliances: a quiet icon each, never an Attention Item.
+- type: custom:auto-entities
+  show_empty: false
+  card:
+    type: custom:mushroom-chips-card
+    alignment: end
+    card_mod:
+      style: |
+        ha-card { --mush-chip-height: 48px; --mush-chip-spacing: 10px; }
+  card_param: chips
+  filter:
+    template: |-
+      {%- for running, icon in [
+        ('binary_sensor.wallboard_washer_active', 'mdi:washing-machine'),
+        ('binary_sensor.wallboard_dryer_active', 'mdi:tumble-dryer'),
+        ('binary_sensor.wallboard_dishwasher_active', 'mdi:dishwasher'),
+      ] if is_state(running, 'on') -%}
+        {{ {'type': 'template', 'icon': icon, 'icon_color': 'disabled', 'tap_action': {'action': 'none'}} }},
+      {%- endfor -%}
+  grid_options:
+    columns: 6
+    rows: 1

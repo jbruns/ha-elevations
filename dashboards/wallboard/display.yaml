@@ -7,6 +7,15 @@ views:
 - month.yaml
 prerequisites:
   entities:
+  - binary_sensor.example_exterior_doors
+  - binary_sensor.example_immediate_hazards
+  - binary_sensor.wallboard_bins_out
+  - binary_sensor.wallboard_dishwasher_active
+  - binary_sensor.wallboard_dryer_active
+  - binary_sensor.wallboard_dryer_finished_cycle
+  - binary_sensor.wallboard_unlocked_door
+  - binary_sensor.wallboard_washer_active
+  - binary_sensor.wallboard_washer_finished_cycle
   - calendar.example_appointments
   - calendar.example_birthdays
   - calendar.example_collection
@@ -27,9 +36,12 @@ prerequisites:
   - sensor.example_child_b_choreops_ui_dashboard_helper
   - sensor.example_dishwasher_power
   - sensor.example_dryer_power
+  - sensor.example_outdoor_aqi
   - sensor.example_washer_power
   - sensor.wallboard_countdowns
+  - sensor.wallboard_now_next
   - sensor.wallboard_school_lunch
+  - sensor.wallboard_unlocked_doors
   - sun.sun
   - todo.example_after_school_tasks
   - todo.example_family_reminders

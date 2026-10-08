@@ -44,7 +44,16 @@ async def wallboard_calendars(hass: HomeAssistant) -> dict[str, Calendar]:
     """The calendars the package reads, at their placeholder IDs; empty unless a test fills them."""
     calendars = {
         name: Calendar(f"calendar.example_{name}", name)
-        for name in ("collection", "trips_breaks", "us_holidays", "birthdays", "school_lunch")
+        for name in (
+            "collection",
+            "trips_breaks",
+            "us_holidays",
+            "birthdays",
+            "school_lunch",
+            "family",
+            "appointments",
+            "school_closures",
+        )
     }
     setup_test_component_platform(hass, "calendar", list(calendars.values()))
     assert await async_setup_component(hass, "calendar", {"calendar": {"platform": "test"}})
@@ -470,3 +479,72 @@ async def test_school_lunch_is_empty_on_a_day_without_one(
     await start_home_assistant(hass)
 
     assert school_lunch(hass) == ("", "")
+
+
+# Now/Next
+
+NOW_NEXT = "sensor.wallboard_now_next"
+
+
+def now_next_events(hass: HomeAssistant) -> list[dict[str, Any]]:
+    return hass.states.get(NOW_NEXT).attributes["events"]
+
+
+async def test_now_next_lists_timed_events_through_tomorrow_soonest_first(
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
+) -> None:
+    await wallboard_calendars["family"].set_events(
+        [
+            Event(local(datetime(2026, 10, 8, 17, 0)), local(datetime(2026, 10, 8, 19, 0)), "Soccer practice"),
+            Event(local(datetime(2026, 10, 9, 8, 0)), local(datetime(2026, 10, 9, 8, 30)), "Bake sale"),
+            Event(local(datetime(2026, 10, 10, 9, 0)), local(datetime(2026, 10, 10, 10, 0)), "Swim meet"),
+            all_day(date(2026, 10, 8), "Grandparents visit"),
+        ]
+    )
+    await wallboard_calendars["appointments"].set_events(
+        [Event(local(datetime(2026, 10, 8, 9, 30)), local(datetime(2026, 10, 8, 11, 0)), "Dentist")]
+    )
+    await wallboard_calendars["us_holidays"].set_events([all_day(date(2026, 10, 9), "Holiday")])
+    await clock.move_to(datetime(2026, 10, 8, 10, 0))
+    await setup_package(hass)
+    await start_home_assistant(hass)
+
+    # The dentist is under way; the swim meet is past tomorrow; all-day events don't count.
+    assert now_next_events(hass) == [
+        {"title": "Dentist", "start": "2026-10-08T09:30:00-07:00", "end": "2026-10-08T11:00:00-07:00"},
+        {"title": "Soccer practice", "start": "2026-10-08T17:00:00-07:00", "end": "2026-10-08T19:00:00-07:00"},
+        {"title": "Bake sale", "start": "2026-10-09T08:00:00-07:00", "end": "2026-10-09T08:30:00-07:00"},
+    ]
+    assert hass.states.get(NOW_NEXT).state == "3"
+
+
+async def test_now_next_shows_event_times_in_local_time(
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
+) -> None:
+    # A calendar may report an event in another time zone, such as UTC.
+    await wallboard_calendars["family"].set_events(
+        [Event(datetime(2026, 10, 9, 1, 0, tzinfo=dt_util.UTC), datetime(2026, 10, 9, 2, 0, tzinfo=dt_util.UTC), "Call")]
+    )
+    await clock.move_to(datetime(2026, 10, 8, 10, 0))
+    await setup_package(hass)
+    await start_home_assistant(hass)
+
+    assert now_next_events(hass) == [
+        {"title": "Call", "start": "2026-10-08T18:00:00-07:00", "end": "2026-10-08T19:00:00-07:00"}
+    ]
+
+
+async def test_now_next_picks_up_new_events_within_five_minutes(
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
+) -> None:
+    await clock.move_to(datetime(2026, 10, 8, 10, 1))
+    await setup_package(hass)
+    await start_home_assistant(hass)
+    assert now_next_events(hass) == []
+
+    await wallboard_calendars["family"].set_events(
+        [Event(local(datetime(2026, 10, 8, 17, 0)), local(datetime(2026, 10, 8, 18, 0)), "Piano")]
+    )
+    await clock.advance(timedelta(minutes=4))
+
+    assert [event["title"] for event in now_next_events(hass)] == ["Piano"]
