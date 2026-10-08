@@ -16,3 +16,7 @@ GARAGE_ENTRY_LOCK: lock.example_garage_entry
 GARAGE_ENTRY_LABEL: Garage Entry
 SIDE_ENTRY_LOCK: lock.example_side_entry
 SIDE_ENTRY_LABEL: Side Entry
+SHOPPING_LIST_TODO: todo.example_shopping_list
+FAMILY_REMINDERS_TODO: todo.example_family_reminders
+AFTER_SCHOOL_TASKS_TODO: todo.example_after_school_tasks
+SCHOOL_DAY_DROPDOWN: input_select.example_school_day

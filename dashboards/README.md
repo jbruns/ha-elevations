@@ -40,6 +40,8 @@ The package uses the same overlay as the Display for the entry locks, entry labe
 
 - Calendars for family events, appointments, trips/breaks, birthdays, US holidays, school closures and Collection Day.
 - A weather entity for the Household Schedule forecast.
+- To-do lists for Shopping Items, Reminders and After-School Tasks, shown on the rail with the built-in to-do list card.
+- The School Day helper: an `input_select` with the options `true` and `false`. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders on the rail.
 - Entry locks and appliance power sensors named in the local overlay, for the Wallboard support package above.
 - Custom cards listed in `custom-cards.yaml`: week-planner-card, card-mod and kiosk-mode.
 - The Wallboard base theme in `wallboard/themes/wallboard.yaml`, selected in the kiosk browser's profile.
@@ -51,6 +53,7 @@ The package uses the same overlay as the Display for the entry locks, entry labe
 3. Paste the rendered `wallboard/build/wallboard.yaml` into the raw configuration editor of a new storage dashboard, alongside the current Wallboard. Do not paste over the current Wallboard until cutover.
 4. Copy `wallboard/themes/wallboard.yaml` into Home Assistant's themes folder, run **Reload themes**, then select the **Wallboard** theme in the kiosk browser's profile. The view pins no theme (ADR 0011). This base theme only widens the sections view columns so the three columns fill a 1920px screen; everything else keeps Home Assistant's defaults. Seasonal Look themes will build on it.
 5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling.
+6. On the rail, add an item through each list's add field with the touch keyboard, and check that it appears in the matching to-do list.
 
 ## Our Home
 

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from testing.displays import (
     async_load_support_packages,
     async_render_templates,
     referenced_entities,
+    walk,
 )
 
 ROOT = Path(__file__).parents[2]
@@ -70,8 +71,75 @@ def week_planner_card(display: dict[str, Any]) -> dict[str, Any]:
     raise AssertionError("Wallboard Household Schedule does not include week-planner-card")
 
 
+SECTION_GRID_COLUMNS = 12
+SCHOOL_DAY = "input_select.example_school_day"
+# A weekday morning and afternoon, on and off a School Day.
+WALLBOARD_MOMENTS = [
+    ({SCHOOL_DAY: school_day}, datetime(2026, 10, 7, hour, 0))
+    for school_day in ("true", "false")
+    for hour in (8, 15)
+]
+
+
+def card_visible(card: dict[str, Any], states: dict[str, str], now: datetime) -> bool:
+    return all(condition_holds(condition, states, now) for condition in card.get("visibility", []))
+
+
+def condition_holds(condition: dict[str, Any], states: dict[str, str], now: datetime) -> bool:
+    kind = condition["condition"]
+    if kind == "and":
+        return all(condition_holds(c, states, now) for c in condition["conditions"])
+    if kind == "or":
+        return any(condition_holds(c, states, now) for c in condition["conditions"])
+    if kind == "not":
+        return not any(condition_holds(c, states, now) for c in condition["conditions"])
+    if kind == "state":
+        state = states[condition["entity"]]
+        if "state" in condition:
+            return state == condition["state"]
+        return state != condition["state_not"]
+    if kind == "time":
+        after = time.fromisoformat(condition.get("after", "00:00"))
+        before = time.fromisoformat(condition.get("before", "23:59:59"))
+        weekdays = condition.get("weekdays", [now.strftime("%a").lower()])
+        return after <= now.time() < before and now.strftime("%a").lower() in weekdays
+    raise AssertionError(f"unsupported visibility condition: {kind}")
+
+
+def card_columns(card: dict[str, Any]) -> int:
+    columns = card["grid_options"].get("columns", "full")
+    return SECTION_GRID_COLUMNS if columns == "full" else columns
+
+
+def packed_rows(cards: list[dict[str, Any]]) -> int:
+    # Sections place cards with CSS grid "row dense" auto-placement.
+    taken: set[tuple[int, int]] = set()
+    bottom = 0
+    for card in cards:
+        width, height = card_columns(card), card["grid_options"]["rows"]
+        row = 0
+        while True:
+            column = next(
+                (
+                    c
+                    for c in range(SECTION_GRID_COLUMNS - width + 1)
+                    if not any((row + r, c + w) in taken for r in range(height) for w in range(width))
+                ),
+                None,
+            )
+            if column is not None:
+                break
+            row += 1
+        taken.update((row + r, column + w) for r in range(height) for w in range(width))
+        bottom = max(bottom, row + height)
+    return bottom
+
+
 def section_rows(section: dict[str, Any]) -> int:
-    return sum(card["grid_options"]["rows"] for card in section["cards"])
+    return max(
+        packed_rows([card for card in section["cards"] if card_visible(card, states, now)])
+        for states, now in WALLBOARD_MOMENTS
+    )
 
 
 def section_height_px(section: dict[str, Any]) -> int:
@@ -200,3 +268,60 @@ async def test_wallboard_package_reports_appliance_running(hass: HomeAssistant, 
     assert hass.states.get("binary_sensor.wallboard_washer_active").state == "on"
     assert hass.states.get("binary_sensor.wallboard_dryer_active").state == "on"
     assert hass.states.get("binary_sensor.wallboard_dishwasher_active").state == "on"
+
+
+def rail_section(display: dict[str, Any]) -> dict[str, Any]:
+    return wallboard_home(display)["sections"][2]
+
+
+def rail_list_cards(display: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {card["title"]: card for card in rail_section(display)["cards"] if card.get("type") == "todo-list"}
+
+
+def test_wallboard_rail_shows_shopping_reminders_and_after_school_lists(display: dict[str, Any]) -> None:
+    lists = rail_list_cards(display)
+
+    assert {title: card["entity"] for title, card in lists.items()} == {
+        "Shopping List": "todo.example_shopping_list",
+        "Family Reminders": "todo.example_family_reminders",
+        "After-School Tasks": "todo.example_after_school_tasks",
+    }
+
+
+def test_wallboard_rail_shows_after_school_tasks_only_on_school_day_afternoons(display: dict[str, Any]) -> None:
+    lists = rail_list_cards(display)
+
+    shown = {
+        (states[SCHOOL_DAY], now.hour): sorted(title for title, card in lists.items() if card_visible(card, states, now))
+        for states, now in WALLBOARD_MOMENTS
+    }
+
+    assert shown == {
+        ("true", 8): ["Family Reminders", "Shopping List"],
+        ("true", 15): ["After-School Tasks", "Shopping List"],
+        ("false", 8): ["Family Reminders", "Shopping List"],
+        ("false", 15): ["Family Reminders", "Shopping List"],
+    }
+
+
+def test_wallboard_rail_lists_fit_their_four_row_band(display: dict[str, Any]) -> None:
+    lists = list(rail_list_cards(display).values())
+
+    assert section_rows({"cards": lists}) == 4
+
+
+def test_wallboard_rail_lists_hide_completed_items_and_keep_quick_add(display: dict[str, Any]) -> None:
+    for card in rail_list_cards(display).values():
+        assert card["hide_completed"] is True
+        assert card.get("hide_create", False) is False
+
+
+def test_wallboard_rail_lists_use_only_the_built_in_todo_list_card(display: dict[str, Any]) -> None:
+    list_cards = [
+        node
+        for node in walk(rail_section(display))
+        if isinstance(node, dict) and str(node.get("entity", "")).startswith("todo.")
+    ]
+
+    assert len(list_cards) == 3
+    assert {card["type"] for card in list_cards} == {"todo-list"}
