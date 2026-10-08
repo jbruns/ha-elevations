@@ -42,13 +42,15 @@ The package uses the same overlay as the Display for the entry locks, entry labe
 - A weather entity for the Household Schedule forecast.
 - Entry locks and appliance power sensors named in the local overlay, for the Wallboard support package above.
 - Custom cards listed in `custom-cards.yaml`: week-planner-card, card-mod and kiosk-mode.
+- The Wallboard base theme in `wallboard/themes/wallboard.yaml`, selected in the kiosk browser's profile.
 
 ### Install
 
 1. Copy the rendered `wallboard/build/package.yaml` into Home Assistant's packages, then restart or reload template entities.
 2. Check that the Wallboard-local role entities exist and update: `binary_sensor.wallboard_any_entry_unlocked`, `sensor.wallboard_unlocked_entries`, `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`.
 3. Paste the rendered `wallboard/build/wallboard.yaml` into the raw configuration editor of a new storage dashboard, alongside the current Wallboard. Do not paste over the current Wallboard until cutover.
-4. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail on one 1080p screen without scrolling.
+4. Copy `wallboard/themes/wallboard.yaml` into Home Assistant's themes folder, run **Reload themes**, then select the **Wallboard** theme in the kiosk browser's profile. The view pins no theme (ADR 0011). This base theme only widens the sections view columns so the three columns fill a 1920px screen; everything else keeps Home Assistant's defaults. Seasonal Look themes will build on it.
+5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling.
 
 ## Our Home
 

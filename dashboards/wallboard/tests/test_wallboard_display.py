@@ -25,6 +25,7 @@ DISPLAY = ROOT / "wallboard" / "display.yaml"
 CUSTOM_CARDS = ROOT / "custom-cards.yaml"
 PACKAGE = ROOT / "wallboard" / "package.yaml"
 OVERLAY = ROOT / "wallboard" / "wallboard.local.example.yaml"
+THEME = ROOT / "wallboard" / "themes" / "wallboard.yaml"
 
 
 @pytest.fixture
@@ -53,7 +54,9 @@ def wallboard_home(display: dict[str, Any]) -> dict[str, Any]:
 
 
 # Home Assistant sections view geometry, from hui-sections-view and hui-grid-section.
+SCREEN_WIDTH_PX = 1920
 SCREEN_HEIGHT_PX = 1080
+VIEW_COLUMN_GAP_PX = 32
 VIEW_ROW_GAP_PX = 24
 CARD_ROW_HEIGHT_PX = 56
 CARD_ROW_GAP_PX = 8
@@ -95,6 +98,29 @@ def test_wallboard_fits_one_1080p_screen_without_scrolling(display: dict[str, An
 
     assert used <= SCREEN_HEIGHT_PX
     assert 0.15 <= section_height_px(glance) / SCREEN_HEIGHT_PX <= 0.2
+
+
+def test_wallboard_household_schedule_shows_seven_days_at_every_wide_breakpoint(display: dict[str, Any]) -> None:
+    # week-planner-card breakpoints by card width: small is 640px and up; extraSmall is below that.
+    assert week_planner_card(display)["columns"] == {
+        "extraLarge": 7,
+        "large": 7,
+        "medium": 7,
+        "small": 7,
+        "extraSmall": 1,
+    }
+
+
+def test_wallboard_base_theme_lets_three_columns_fill_the_screen(display: dict[str, Any]) -> None:
+    themes = yaml.safe_load(THEME.read_text())
+    column_max_width = themes["Wallboard"]["ha-view-sections-column-max-width"]
+    columns = wallboard_home(display)["max_columns"]
+
+    assert list(themes) == ["Wallboard"]
+    assert column_max_width.endswith("px")
+    # The view wrapper is padded by one column gap on each side.
+    widest_view = columns * int(column_max_width.removesuffix("px")) + (columns + 1) * VIEW_COLUMN_GAP_PX
+    assert widest_view >= SCREEN_WIDTH_PX
 
 
 def test_wallboard_visual_ownership_stays_with_the_kiosk_browser(display: dict[str, Any]) -> None:
