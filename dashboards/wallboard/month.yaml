@@ -1,5 +1,5 @@
-# Month: the Household Schedule as a month grid, the Wallboard's only secondary screen.
-# kiosk-mode hides the header and its back arrow, so the heading leads back instead.
+# Month: the Household Schedule calendars as a month grid, the Wallboard's only secondary view.
+# kiosk-mode hides the header and its back arrow, so the heading leads back to the Household Schedule.
 title: Month
 path: month
 subview: true

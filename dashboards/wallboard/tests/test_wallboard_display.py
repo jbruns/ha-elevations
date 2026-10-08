@@ -159,9 +159,14 @@ def packed_rows(cards: list[dict[str, Any]]) -> int:
     return bottom
 
 
-def household_schedule_header(display: dict[str, Any]) -> dict[str, Any]:
-    schedule = wallboard_home(display)["sections"][1]
-    return schedule["cards"][0]
+def heading_card(section: dict[str, Any]) -> dict[str, Any]:
+    [heading] = [card for card in section["cards"] if card["type"] == "heading"]
+    return heading
+
+
+def month_calendar_card(display: dict[str, Any]) -> dict[str, Any]:
+    [calendar] = [card for card in walk(wallboard_month(display)) if isinstance(card, dict) and card.get("type") == "calendar"]
+    return calendar
 
 
 def section_rows(section: dict[str, Any]) -> int:
@@ -256,7 +261,7 @@ def test_wallboard_household_schedule_shows_only_shared_calendars(display: dict[
 
 
 def test_wallboard_household_schedule_header_opens_month(display: dict[str, Any]) -> None:
-    header = household_schedule_header(display)
+    header = heading_card(wallboard_home(display)["sections"][1])
     tap_action = header["tap_action"]
 
     assert header["type"] == "heading"
@@ -265,7 +270,7 @@ def test_wallboard_household_schedule_header_opens_month(display: dict[str, Any]
     assert navigated_view_path("home", tap_action["navigation_path"]) == "month"
 
 
-def test_wallboard_month_is_the_only_secondary_screen(display: dict[str, Any]) -> None:
+def test_wallboard_month_is_the_only_secondary_view(display: dict[str, Any]) -> None:
     month = wallboard_month(display)
 
     assert [view["path"] for view in display["views"]] == ["home", "month"]
@@ -273,8 +278,8 @@ def test_wallboard_month_is_the_only_secondary_screen(display: dict[str, Any]) -
     assert navigated_view_path("month", month["back_path"]) == "home"
 
 
-def test_wallboard_month_shows_the_household_schedule_as_a_month_grid(display: dict[str, Any]) -> None:
-    [calendar] = [card for card in walk(wallboard_month(display)) if isinstance(card, dict) and card.get("type") == "calendar"]
+def test_wallboard_month_shows_the_household_schedule_calendars_as_a_month_grid(display: dict[str, Any]) -> None:
+    calendar = month_calendar_card(display)
 
     assert calendar["initial_view"] == "dayGridMonth"
     assert calendar["entities"] == HOUSEHOLD_SCHEDULE_CALENDARS
@@ -282,14 +287,14 @@ def test_wallboard_month_shows_the_household_schedule_as_a_month_grid(display: d
 
 
 def test_wallboard_month_offers_no_event_creation(display: dict[str, Any]) -> None:
-    [calendar] = [card for card in walk(wallboard_month(display)) if isinstance(card, dict) and card.get("type") == "calendar"]
+    calendar = month_calendar_card(display)
 
     assert calendar["show_add_event"] is False
 
 
 def test_wallboard_month_header_returns_to_the_main_view(display: dict[str, Any]) -> None:
     [section] = wallboard_month(display)["sections"]
-    header = section["cards"][0]
+    header = heading_card(section)
 
     assert header["type"] == "heading"
     assert header["tap_action"]["action"] == "navigate"

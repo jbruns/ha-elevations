@@ -28,6 +28,7 @@ cards:
   legendToggle: true
   showNavigation: false
   showWeekDayText: true
+  # The card already merges identical events from one calendar; true would also merge across calendars.
   combineSimilarEvents: false
   weather:
     entity: '{WEATHER_ENTITY}'

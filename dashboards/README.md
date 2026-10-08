@@ -16,9 +16,9 @@ No blueprint depends on this package (ADR 0005).
 
 ## Wallboard
 
-`wallboard/display.yaml` renders the Wallboard from one sections view and one file per section. The view has a full-width glance band above the Household Schedule and a rail beside it. Tapping the Household Schedule heading opens the Month subview (`wallboard/month.yaml`): the same calendars in Home Assistant's built-in calendar card as a month grid, and the Wallboard's only secondary screen. Its heading leads back, since kiosk-mode hides the header's back arrow.
+`wallboard/display.yaml` renders the Wallboard from one sections view and one file per section. The view has a full-width glance band above the Household Schedule and a rail beside it. Tapping the Household Schedule heading opens the Month subview (`wallboard/month.yaml`): the Household Schedule calendars in Home Assistant's built-in calendar card as a month grid, and the Wallboard's only secondary view. Its heading leads back, since kiosk-mode hides the header's back arrow.
 
-The Wallboard never creates events: the Month calendar card shows no add-event button. Tapping an event in Month opens its details, and for calendars that support deleting events, such as Local Calendar, that dialog still offers Delete. Month colours each calendar from its entity settings (**Settings → Entities → calendar → Color**), not from the week-planner-card colours; set them to match if wanted. Copy `wallboard/wallboard.local.example.yaml` to `wallboard/wallboard.local.yaml`, fill in this home's real values, then render with:
+The Wallboard never creates events: the Month calendar card shows no add-event button. Tapping an event in Month opens its details, and for calendars that support deleting events, such as Local Calendar, that dialog still offers Delete. Month does not merge identical events, so a calendar that lists the same event twice, such as two `Recycle` events on one Collection Day, shows it twice there; the week planner shows it once. Month colours each calendar from its entity settings (**Settings → Entities → calendar → Color**), not from the week-planner-card colours; set them to match if wanted. Copy `wallboard/wallboard.local.example.yaml` to `wallboard/wallboard.local.yaml`, fill in this home's real values, then render with:
 
 ```sh
 uv run python scripts/render-asset.py display \
