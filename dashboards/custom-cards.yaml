@@ -7,6 +7,9 @@ custom_cards:
   atomic-calendar-revive:
     repository: totaldebug/atomic-calendar-revive
     installed_version: v10.3.1
+  auto-entities:
+    repository: thomasloven/lovelace-auto-entities
+    installed_version: v1.16.1
   better-moment-card:
     repository: ibz0q/better-moment-card
     installed_version: '2025.01.11'
