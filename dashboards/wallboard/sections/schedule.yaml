@@ -2,6 +2,18 @@
 type: grid
 column_span: 2
 cards:
+# week-planner-card has no title tap action, so this heading opens Month.
+# A relative navigation_path keeps working whatever url_path the dashboard has.
+- type: heading
+  heading: Household Schedule
+  heading_style: title
+  icon: mdi:calendar-month
+  tap_action:
+    action: navigate
+    navigation_path: month
+  grid_options:
+    columns: full
+    rows: 1
 - type: custom:week-planner-card
   days: 7
   startingDay: today
@@ -63,4 +75,4 @@ cards:
       .container .day.today .date::before { content: 'Today'; font-size: 1.05rem; }
   grid_options:
     columns: full
-    rows: 12
+    rows: 11

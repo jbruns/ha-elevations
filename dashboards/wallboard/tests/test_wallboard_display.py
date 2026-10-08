@@ -1,6 +1,7 @@
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 import pytest
 import yaml
@@ -49,9 +50,37 @@ def rendered_package_config() -> dict[str, Any]:
     return yaml.safe_load(render_text(PACKAGE.read_text(), load_overlay(OVERLAY), source=PACKAGE))
 
 
+def wallboard_view(display: dict[str, Any], path: str) -> dict[str, Any]:
+    [view] = [view for view in display["views"] if view["path"] == path]
+    return view
+
+
 def wallboard_home(display: dict[str, Any]) -> dict[str, Any]:
-    [home] = display["views"]
-    return home
+    return wallboard_view(display, "home")
+
+
+def wallboard_month(display: dict[str, Any]) -> dict[str, Any]:
+    return wallboard_view(display, "month")
+
+
+def navigated_view_path(from_view: str, navigation_path: str) -> str:
+    # A relative path resolves against the open view's URL, as history.pushState does,
+    # so it works under whatever url_path the dashboard is installed at.
+    dashboard = "https://ha.example.com/wallboard/"
+    target = urljoin(dashboard + from_view, navigation_path)
+    assert target.startswith(dashboard), f"{navigation_path!r} leaves the Wallboard"
+    return target.removeprefix(dashboard)
+
+
+HOUSEHOLD_SCHEDULE_CALENDARS = [
+    "calendar.example_family",
+    "calendar.example_appointments",
+    "calendar.example_trips_breaks",
+    "calendar.example_birthdays",
+    "calendar.example_us_holidays",
+    "calendar.example_school_closures",
+    "calendar.example_collection",
+]
 
 
 # Home Assistant sections view geometry, from hui-sections-view and hui-grid-section.
@@ -130,6 +159,11 @@ def packed_rows(cards: list[dict[str, Any]]) -> int:
     return bottom
 
 
+def household_schedule_header(display: dict[str, Any]) -> dict[str, Any]:
+    schedule = wallboard_home(display)["sections"][1]
+    return schedule["cards"][0]
+
+
 def section_rows(section: dict[str, Any]) -> int:
     return max(
         packed_rows([card for card in section["cards"] if card_visible(card, states, now)])
@@ -187,10 +221,9 @@ def test_wallboard_base_theme_lets_three_columns_fill_the_screen(display: dict[s
 
 
 def test_wallboard_visual_ownership_stays_with_the_kiosk_browser(display: dict[str, Any]) -> None:
-    view = wallboard_home(display)
-
-    assert "theme" not in view
-    assert "background" not in view
+    for view in display["views"]:
+        assert "theme" not in view
+        assert "background" not in view
 
 
 def test_wallboard_dashboard_enables_kiosk_mode(display: dict[str, Any]) -> None:
@@ -220,6 +253,58 @@ def test_wallboard_household_schedule_shows_only_shared_calendars(display: dict[
         {"entity": "calendar.example_collection", "name": "Collection", "color": "#828282"},
     ]
     assert "calendar.example_school_lunch" not in {calendar["entity"] for calendar in calendars}
+
+
+def test_wallboard_household_schedule_header_opens_month(display: dict[str, Any]) -> None:
+    header = household_schedule_header(display)
+    tap_action = header["tap_action"]
+
+    assert header["type"] == "heading"
+    assert header["heading"] == "Household Schedule"
+    assert tap_action["action"] == "navigate"
+    assert navigated_view_path("home", tap_action["navigation_path"]) == "month"
+
+
+def test_wallboard_month_is_the_only_secondary_screen(display: dict[str, Any]) -> None:
+    month = wallboard_month(display)
+
+    assert [view["path"] for view in display["views"]] == ["home", "month"]
+    assert month["subview"] is True
+    assert navigated_view_path("month", month["back_path"]) == "home"
+
+
+def test_wallboard_month_shows_the_household_schedule_as_a_month_grid(display: dict[str, Any]) -> None:
+    [calendar] = [card for card in walk(wallboard_month(display)) if isinstance(card, dict) and card.get("type") == "calendar"]
+
+    assert calendar["initial_view"] == "dayGridMonth"
+    assert calendar["entities"] == HOUSEHOLD_SCHEDULE_CALENDARS
+    assert calendar["entities"] == [entry["entity"] for entry in week_planner_card(display)["calendars"]]
+
+
+def test_wallboard_month_offers_no_event_creation(display: dict[str, Any]) -> None:
+    [calendar] = [card for card in walk(wallboard_month(display)) if isinstance(card, dict) and card.get("type") == "calendar"]
+
+    assert calendar["show_add_event"] is False
+
+
+def test_wallboard_month_header_returns_to_the_main_view(display: dict[str, Any]) -> None:
+    [section] = wallboard_month(display)["sections"]
+    header = section["cards"][0]
+
+    assert header["type"] == "heading"
+    assert header["tap_action"]["action"] == "navigate"
+    assert navigated_view_path("month", header["tap_action"]["navigation_path"]) == "home"
+
+
+def test_wallboard_month_fits_one_1080p_screen_without_scrolling(display: dict[str, Any]) -> None:
+    month = wallboard_month(display)
+    [section] = month["sections"]
+
+    used = VIEW_ROW_GAP_PX + section_height_px(section) + VIEW_ROW_GAP_PX
+
+    assert month["type"] == "sections"
+    assert section["column_span"] == month["max_columns"]
+    assert used <= SCREEN_HEIGHT_PX
 
 
 def test_wallboard_documents_every_entity_it_references(display: dict[str, Any], display_source: DisplaySource) -> None:

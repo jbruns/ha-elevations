@@ -16,7 +16,9 @@ No blueprint depends on this package (ADR 0005).
 
 ## Wallboard
 
-`wallboard/display.yaml` renders the Wallboard from one sections view and one file per section. The view has a full-width glance band above the Household Schedule and a rail beside it. Copy `wallboard/wallboard.local.example.yaml` to `wallboard/wallboard.local.yaml`, fill in this home's real values, then render with:
+`wallboard/display.yaml` renders the Wallboard from one sections view and one file per section. The view has a full-width glance band above the Household Schedule and a rail beside it. Tapping the Household Schedule heading opens the Month subview (`wallboard/month.yaml`): the same calendars in Home Assistant's built-in calendar card as a month grid, and the Wallboard's only secondary screen. Its heading leads back, since kiosk-mode hides the header's back arrow.
+
+The Wallboard never creates events: the Month calendar card shows no add-event button. Tapping an event in Month opens its details, and for calendars that support deleting events, such as Local Calendar, that dialog still offers Delete. Month colours each calendar from its entity settings (**Settings → Entities → calendar → Color**), not from the week-planner-card colours; set them to match if wanted. Copy `wallboard/wallboard.local.example.yaml` to `wallboard/wallboard.local.yaml`, fill in this home's real values, then render with:
 
 ```sh
 uv run python scripts/render-asset.py display \
@@ -52,7 +54,7 @@ The package uses the same overlay as the Display for the entry locks, entry labe
 2. Check that the Wallboard-local role entities exist and update: `binary_sensor.wallboard_any_entry_unlocked`, `sensor.wallboard_unlocked_entries`, `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`.
 3. Paste the rendered `wallboard/build/wallboard.yaml` into the raw configuration editor of a new storage dashboard, alongside the current Wallboard. Do not paste over the current Wallboard until cutover.
 4. Copy `wallboard/themes/wallboard.yaml` into Home Assistant's themes folder, run **Reload themes**, then select the **Wallboard** theme in the kiosk browser's profile. The view pins no theme (ADR 0011). This base theme only widens the sections view columns so the three columns fill a 1920px screen; everything else keeps Home Assistant's defaults. Seasonal Look themes will build on it.
-5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling.
+5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling. Tap the Household Schedule heading: Month opens as a month grid without scrolling, and its heading returns to the main view.
 6. On the rail, add an item through each list's add field with the touch keyboard, and check that it appears in the matching to-do list.
 
 ## Our Home
