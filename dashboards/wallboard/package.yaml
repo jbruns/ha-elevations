@@ -50,14 +50,17 @@ template:
         delay_off: "00:30:00"
 
   # Finished Cycle: a washer or dryer load that has stopped running, until
-  # acknowledged or for 3 hours. Trigger-based, so it and its timeout survive
-  # a restart.
+  # acknowledged, the next load starts, or 3 hours pass. Trigger-based, so it,
+  # its timeout and a load still running survive a restart.
   - triggers:
       - trigger: state
         entity_id: binary_sensor.wallboard_washer_active
-        from: "on"
+        to: "on"
+        id: running
+      - trigger: state
+        entity_id: binary_sensor.wallboard_washer_active
         to: "off"
-        id: finished
+        id: stopped
       - trigger: event
         event_type: wallboard_acknowledge
         event_data:
@@ -66,15 +69,20 @@ template:
       - name: "Wallboard Washer Finished Cycle"
         unique_id: wallboard_washer_finished_cycle
         icon: mdi:washing-machine-alert
-        state: "{{ trigger.id == 'finished' }}"
+        state: "{{ trigger.id == 'stopped' and this.attributes.get('running', false) }}"
         auto_off: "03:00:00"
+        attributes:
+          running: "{{ trigger.id == 'running' or (trigger.id != 'stopped' and this.attributes.get('running', false)) }}"
 
   - triggers:
       - trigger: state
         entity_id: binary_sensor.wallboard_dryer_active
-        from: "on"
+        to: "on"
+        id: running
+      - trigger: state
+        entity_id: binary_sensor.wallboard_dryer_active
         to: "off"
-        id: finished
+        id: stopped
       - trigger: event
         event_type: wallboard_acknowledge
         event_data:
@@ -83,8 +91,10 @@ template:
       - name: "Wallboard Dryer Finished Cycle"
         unique_id: wallboard_dryer_finished_cycle
         icon: mdi:tumble-dryer-alert
-        state: "{{ trigger.id == 'finished' }}"
+        state: "{{ trigger.id == 'stopped' and this.attributes.get('running', false) }}"
         auto_off: "03:00:00"
+        attributes:
+          running: "{{ trigger.id == 'running' or (trigger.id != 'stopped' and this.attributes.get('running', false)) }}"
 
   # Collection Day: from 17:00 the evening before until midnight, the bins go
   # out, until a tap acknowledges them for that Collection Day.

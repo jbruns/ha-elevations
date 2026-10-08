@@ -40,7 +40,7 @@ def expected_lingering_timers() -> bool:
 
 
 @pytest.fixture(autouse=True)
-async def calendars(hass: HomeAssistant) -> dict[str, Calendar]:
+async def wallboard_calendars(hass: HomeAssistant) -> dict[str, Calendar]:
     """The calendars the package reads, at their placeholder IDs; empty unless a test fills them."""
     calendars = {
         name: Calendar(f"calendar.example_{name}", name)
@@ -197,6 +197,17 @@ async def test_acknowledging_one_finished_cycle_leaves_the_other(hass: HomeAssis
     assert hass.states.get(DRYER_FINISHED).state == "off"
 
 
+async def test_starting_the_next_load_ends_a_finished_cycle(hass: HomeAssistant, clock: Clock) -> None:
+    hass.states.async_set(WASHER_POWER, "2")
+    await setup_package(hass)
+    await run_load(hass, clock, WASHER_POWER, "350")
+
+    hass.states.async_set(WASHER_POWER, "350")
+    await clock.advance(timedelta(minutes=3), step=timedelta(minutes=1))
+
+    assert hass.states.get(WASHER_FINISHED).state == "off"
+
+
 async def test_a_finished_cycle_ages_out_after_three_hours(hass: HomeAssistant, clock: Clock) -> None:
     hass.states.async_set(WASHER_POWER, "2")
     await setup_package(hass)
@@ -241,6 +252,20 @@ async def test_each_appliance_shows_running_past_its_threshold(hass: HomeAssista
     assert hass.states.get("binary_sensor.wallboard_dishwasher_active").state == "on"
 
 
+async def test_a_load_that_ends_across_a_restart_is_still_a_finished_cycle(
+    hass: HomeAssistant, clock: Clock
+) -> None:
+    mock_restore_cache_with_extra_data(
+        hass, [(State(WASHER_FINISHED, "off", {"running": True}), {"auto_off_time": None})]
+    )
+    hass.states.async_set(WASHER_POWER, "2")
+    await setup_package(hass)
+
+    await clock.advance(timedelta(minutes=31), step=timedelta(minutes=1))
+
+    assert hass.states.get(WASHER_FINISHED).state == "on"
+
+
 async def test_the_dishwasher_shows_running_but_never_a_finished_cycle(
     hass: HomeAssistant, clock: Clock
 ) -> None:
@@ -265,9 +290,9 @@ def all_day(day: date, summary: str) -> Event:
 
 
 async def test_the_evening_before_collection_day_the_bins_go_out(
-    hass: HomeAssistant, clock: Clock, calendars: dict[str, Calendar]
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
 ) -> None:
-    await calendars["collection"].set_events(
+    await wallboard_calendars["collection"].set_events(
         [
             all_day(date(2026, 10, 13), "Recycle"),
             all_day(date(2026, 10, 13), "Solid Waste"),
@@ -289,9 +314,9 @@ async def test_the_evening_before_collection_day_the_bins_go_out(
 
 
 async def test_no_bins_go_out_when_tomorrow_is_not_a_collection_day(
-    hass: HomeAssistant, clock: Clock, calendars: dict[str, Calendar]
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
 ) -> None:
-    await calendars["collection"].set_events([all_day(date(2026, 10, 14), "Recycle")])
+    await wallboard_calendars["collection"].set_events([all_day(date(2026, 10, 14), "Recycle")])
     await clock.move_to(datetime(2026, 10, 12, 16, 30))
     await setup_package(hass)
     await start_home_assistant(hass)
@@ -302,9 +327,9 @@ async def test_no_bins_go_out_when_tomorrow_is_not_a_collection_day(
 
 
 async def test_bins_out_cleared_by_a_tap_stays_cleared_until_the_next_collection_day_eve(
-    hass: HomeAssistant, clock: Clock, calendars: dict[str, Calendar]
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
 ) -> None:
-    await calendars["collection"].set_events(
+    await wallboard_calendars["collection"].set_events(
         [all_day(date(2026, 10, 13), "Solid Waste"), all_day(date(2026, 10, 20), "Solid Waste")]
     )
     await clock.move_to(datetime(2026, 10, 12, 17, 30))
@@ -323,9 +348,9 @@ async def test_bins_out_cleared_by_a_tap_stays_cleared_until_the_next_collection
 
 
 async def test_bins_out_cleared_by_a_tap_stays_cleared_across_a_restart(
-    hass: HomeAssistant, clock: Clock, calendars: dict[str, Calendar]
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
 ) -> None:
-    await calendars["collection"].set_events([all_day(date(2026, 10, 13), "Solid Waste")])
+    await wallboard_calendars["collection"].set_events([all_day(date(2026, 10, 13), "Solid Waste")])
     await clock.move_to(datetime(2026, 10, 12, 18, 0))
     mock_restore_cache_with_extra_data(
         hass, [(State(BINS_OUT, "off", {"bins": "Solid Waste", "acknowledged": "2026-10-13"}), {"auto_off_time": None})]
@@ -350,12 +375,12 @@ def countdowns(hass: HomeAssistant) -> list[dict[str, Any]]:
 
 
 async def test_countdowns_show_the_four_soonest_anticipated_events(
-    hass: HomeAssistant, clock: Clock, calendars: dict[str, Calendar]
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
 ) -> None:
-    await calendars["trips_breaks"].set_events(
+    await wallboard_calendars["trips_breaks"].set_events(
         [all_day(date(2026, 11, 20), "Beach trip"), all_day(date(2027, 1, 7), "Ski trip")]
     )
-    await calendars["us_holidays"].set_events(
+    await wallboard_calendars["us_holidays"].set_events(
         [
             all_day(date(2026, 10, 12), "Columbus Day"),
             all_day(date(2026, 10, 31), "Halloween"),
@@ -363,7 +388,7 @@ async def test_countdowns_show_the_four_soonest_anticipated_events(
             all_day(date(2026, 12, 25), "Christmas Day"),
         ]
     )
-    await calendars["birthdays"].set_events(
+    await wallboard_calendars["birthdays"].set_events(
         [all_day(date(2026, 10, 20), "Sam's birthday"), all_day(date(2026, 11, 15), "Alex's birthday")]
     )
     await clock.move_to(datetime(2026, 10, 8, 10, 0))
@@ -381,15 +406,15 @@ async def test_countdowns_show_the_four_soonest_anticipated_events(
 
 
 async def test_a_countdown_disappears_once_its_event_starts(
-    hass: HomeAssistant, clock: Clock, calendars: dict[str, Calendar]
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
 ) -> None:
-    await calendars["trips_breaks"].set_events(
+    await wallboard_calendars["trips_breaks"].set_events(
         [
             all_day(date(2026, 10, 8), "Fall break"),
             Event(local(datetime(2026, 10, 8, 14, 0)), local(datetime(2026, 10, 8, 18, 0)), "Flight out"),
         ]
     )
-    await calendars["us_holidays"].set_events([all_day(date(2027, 1, 1), "New Year's Day")])
+    await wallboard_calendars["us_holidays"].set_events([all_day(date(2027, 1, 1), "New Year's Day")])
     await clock.move_to(datetime(2026, 10, 8, 10, 0))
     await setup_package(hass)
     await start_home_assistant(hass)
