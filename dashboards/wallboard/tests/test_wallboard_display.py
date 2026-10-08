@@ -656,6 +656,17 @@ async def test_wallboard_today_is_hidden_when_neither_today_nor_tomorrow_is_a_sc
     assert saturday is None
 
 
+async def test_wallboard_today_waits_overnight_for_family_to_update_the_school_day(
+    hass: HomeAssistant, clock: Clock, display: dict[str, Any]
+) -> None:
+    # Until Family's helpers update in the morning, they still describe yesterday.
+    overnight = await show_today(hass, clock, display, datetime(2026, 10, 7, 6, 0), today="on", tomorrow="on")
+    morning = await show_today(hass, clock, display, datetime(2026, 10, 7, 6, 15), today="on", tomorrow="on")
+
+    assert overnight is None
+    assert "School Day" in morning
+
+
 async def test_wallboard_countdowns_show_days_until_each_anticipated_event(
     hass: HomeAssistant, display: dict[str, Any]
 ) -> None:

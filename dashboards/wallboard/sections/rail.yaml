@@ -3,9 +3,10 @@ type: grid
 column_span: 1
 cards:
 # Today: on a School Day, the banner, each child's Special Class and today's
-# School Lunch, plus tomorrow's from 15:00 when tomorrow is a School Day too.
-# On other days, tomorrow's School Lunch when tomorrow is a School Day.
-# Hidden when neither is, so Countdowns move up.
+# lunch, plus tomorrow's from 15:00 when tomorrow is a School Day too.
+# On other days, tomorrow's lunch when tomorrow is a School Day.
+# Hidden when neither is, so Countdowns move up. Also hidden until 06:15, after
+# Family's School Day (06:00) and Special Classes (06:05) helpers update.
 - type: markdown
   content: |-
     {%- set school_today = is_state('{TODAY_SCHOOL_DAY_HELPER}', 'on') -%}
@@ -17,13 +18,15 @@ cards:
       ("{CHILD_B_NAME}", states('{CHILD_B_SPECIAL_CLASS_DROPDOWN}')),
     ] | rejectattr('1', 'in', ['No class', 'Not set', 'unknown', 'unavailable']) | map('join', ': ') | list -%}
     {%- set lines = (['**Special Classes** · ' ~ classes | join(' · ')] if school_today and classes else [])
-      + (['**School Lunch** · ' ~ lunch_today] if school_today and lunch_today else [])
+      + (['**Lunch** · ' ~ lunch_today] if school_today and lunch_today else [])
       + (["**Tomorrow's lunch** · " ~ lunch_tomorrow]
         if school_tomorrow and lunch_tomorrow and (not school_today or now().hour >= 15) else []) -%}
     <ha-alert alert-type="info"><b>{{ 'School Day' if school_today else 'School Day tomorrow' }}</b></ha-alert>
 
     {{ lines | join('<br>') }}
   visibility:
+  - condition: time
+    after: '06:15'
   - condition: or
     conditions:
     - condition: state
@@ -38,7 +41,7 @@ cards:
 # Countdowns: up to four, soonest first, from the Wallboard package. Hidden when there are none.
 - type: markdown
   content: |-
-    {%- for countdown in (state_attr('sensor.wallboard_countdowns', 'countdowns') or [])[:4] -%}
+    {%- for countdown in state_attr('sensor.wallboard_countdowns', 'countdowns') or [] -%}
       {%- set days = countdown['days'] | int(0) -%}
       **{{ 'Today' if days == 0 else 'Tomorrow' if days == 1 else days ~ ' days' }}** · {{ countdown['title'] }}
       {{- '<br>' if not loop['last'] }}

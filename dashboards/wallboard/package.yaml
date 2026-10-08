@@ -191,8 +191,8 @@ template:
         attributes:
           countdowns: "{{ countdowns }}"
 
-  # School Lunch: today's and tomorrow's lunch from the School Lunch calendar's
-  # all-day events, for the rail's Today block. A leading "Lunch:" is dropped.
+  # Today's and tomorrow's school lunch from the lunch calendar's all-day
+  # events, for the rail's Today card. A leading "Lunch:" is dropped.
   - triggers:
       - trigger: homeassistant
         event: start
@@ -207,25 +207,23 @@ template:
           end_date_time: "{{ (today_at() + timedelta(days=2)).isoformat() }}"
         response_variable: lunches
       - variables:
-          lunch: >-
-            {% set events = lunches['{SCHOOL_LUNCH_CALENDAR}'].events | rejectattr('start', 'search', 'T') | list %}
-            {% set ns = namespace(lunch={}) %}
-            {% for when, day in [('today', today_at()), ('tomorrow', today_at() + timedelta(days=1))] %}
-              {% set ns.lunch = dict(ns.lunch, **{when: events
-                | selectattr('start', 'eq', day.date() | string)
-                | map(attribute='summary')
-                | map('regex_replace', '^\\s*lunch:\\s*', '', ignorecase=true)
-                | join(' · ')}) %}
-            {% endfor %}
-            {{ ns.lunch }}
+          lunch_events: "{{ lunches['{SCHOOL_LUNCH_CALENDAR}'].events | rejectattr('start', 'search', 'T') | list }}"
+          lunch_today: >-
+            {{ lunch_events | selectattr('start', 'eq', today_at().date() | string)
+              | map(attribute='summary') | map('regex_replace', '^\\s*lunch:\\s*', '', ignorecase=true)
+              | join(' · ') }}
+          lunch_tomorrow: >-
+            {{ lunch_events | selectattr('start', 'eq', (today_at() + timedelta(days=1)).date() | string)
+              | map(attribute='summary') | map('regex_replace', '^\\s*lunch:\\s*', '', ignorecase=true)
+              | join(' · ') }}
     sensor:
       - name: "Wallboard School Lunch"
         unique_id: wallboard_school_lunch
         icon: mdi:food-apple
-        state: "{{ lunch.today[:255] }}"
+        state: "{{ lunch_today[:255] }}"
         attributes:
-          today: "{{ lunch.today }}"
-          tomorrow: "{{ lunch.tomorrow }}"
+          today: "{{ lunch_today }}"
+          tomorrow: "{{ lunch_tomorrow }}"
 
   - sensor:
       # Unlocked Door: between sunset and sunrise, or while not Household Home
