@@ -1,0 +1,7 @@
+# Wallboard base theme. Select it in the kiosk browser's profile; the view pins no
+# theme (ADR 0011). Seasonal Look themes build on this base. Everything not set here
+# keeps Home Assistant's defaults.
+Wallboard:
+  # Home Assistant caps sections view columns at 500px, which leaves ~180px margins
+  # on a 1920px screen. 640px lets three columns fill it.
+  ha-view-sections-column-max-width: 640px
