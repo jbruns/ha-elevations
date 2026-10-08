@@ -4,6 +4,7 @@ kiosk_mode:
   hide_sidebar: true
 views:
 - home.yaml
+- month.yaml
 prerequisites:
   entities:
   - calendar.example_appointments

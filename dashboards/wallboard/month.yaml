@@ -1,0 +1,40 @@
+# Month: the Household Schedule calendars as a month grid, the Wallboard's only secondary view.
+# kiosk-mode hides the header and its back arrow, so the heading leads back to the Household Schedule.
+title: Month
+path: month
+subview: true
+back_path: home
+type: sections
+max_columns: 3
+badges: []
+cards: []
+sections:
+- type: grid
+  column_span: 3
+  cards:
+  - type: heading
+    heading: Household Schedule
+    heading_style: title
+    icon: mdi:arrow-left
+    tap_action:
+      action: navigate
+      navigation_path: home
+    grid_options:
+      columns: full
+      rows: 1
+  # Read-only: no add-event button. Tapping an event still opens its details,
+  # where calendars that support it offer Delete.
+  - type: calendar
+    initial_view: dayGridMonth
+    show_add_event: false
+    entities:
+    - '{FAMILY_CALENDAR}'
+    - '{APPOINTMENTS_CALENDAR}'
+    - '{TRIPS_BREAKS_CALENDAR}'
+    - '{BIRTHDAYS_CALENDAR}'
+    - '{US_HOLIDAYS_CALENDAR}'
+    - '{SCHOOL_CLOSURES_CALENDAR}'
+    - '{COLLECTION_CALENDAR}'
+    grid_options:
+      columns: full
+      rows: 15
