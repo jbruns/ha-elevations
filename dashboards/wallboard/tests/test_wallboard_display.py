@@ -97,6 +97,7 @@ def week_planner_card(display: dict[str, Any]) -> dict[str, Any]:
     raise AssertionError("Wallboard Household Schedule does not include week-planner-card")
 
 
+# A section's grid has 12 columns for each column it spans.
 SECTION_GRID_COLUMNS = 12
 SCHOOL_DAY = "input_boolean.example_school_day_today"
 SCHOOL_DAY_TOMORROW = "input_boolean.example_school_day_tomorrow"
@@ -133,23 +134,22 @@ def condition_holds(condition: dict[str, Any], states: dict[str, str], now: date
     raise AssertionError(f"unsupported visibility condition: {kind}")
 
 
-def card_columns(card: dict[str, Any]) -> int:
+def card_columns(card: dict[str, Any], grid_columns: int) -> int:
     columns = card["grid_options"].get("columns", "full")
-    return SECTION_GRID_COLUMNS if columns == "full" else columns
+    return grid_columns if columns == "full" else min(columns, grid_columns)
 
 
-def packed_rows(cards: list[dict[str, Any]]) -> int:
+def packed_cells(cards: list[dict[str, Any]], grid_columns: int) -> set[tuple[int, int]]:
     # Sections place cards with CSS grid "row dense" auto-placement.
     taken: set[tuple[int, int]] = set()
-    bottom = 0
     for card in cards:
-        width, height = card_columns(card), card["grid_options"]["rows"]
+        width, height = card_columns(card, grid_columns), card["grid_options"]["rows"]
         row = 0
         while True:
             column = next(
                 (
                     c
-                    for c in range(SECTION_GRID_COLUMNS - width + 1)
+                    for c in range(grid_columns - width + 1)
                     if not any((row + r, c + w) in taken for r in range(height) for w in range(width))
                 ),
                 None,
@@ -158,8 +158,15 @@ def packed_rows(cards: list[dict[str, Any]]) -> int:
                 break
             row += 1
         taken.update((row + r, column + w) for r in range(height) for w in range(width))
-        bottom = max(bottom, row + height)
-    return bottom
+    return taken
+
+
+def packed_rows(cards: list[dict[str, Any]], grid_columns: int = SECTION_GRID_COLUMNS) -> int:
+    return max((row + 1 for row, _ in packed_cells(cards, grid_columns)), default=0)
+
+
+def grid_columns(section: dict[str, Any]) -> int:
+    return SECTION_GRID_COLUMNS * section.get("column_span", 1)
 
 
 def heading_card(section: dict[str, Any]) -> dict[str, Any]:
@@ -222,7 +229,7 @@ def faded_chip_positions(chips_card: dict[str, Any]) -> set[int]:
 
 def section_rows(section: dict[str, Any]) -> int:
     return max(
-        packed_rows([card for card in section["cards"] if card_visible(card, states, now)])
+        packed_rows([card for card in section["cards"] if card_visible(card, states, now)], grid_columns(section))
         for states, now in WALLBOARD_MOMENTS
     )
 
@@ -988,7 +995,14 @@ def test_wallboard_glance_band_is_three_rows_whether_or_not_attention_items_show
     others = [card for card in glance["cards"] if card not in strips]
 
     assert section_rows(glance) == 3
-    assert packed_rows(others) == 3
+    assert packed_rows(others, grid_columns(glance)) == 3
+
+
+def test_wallboard_glance_band_fills_the_screen_width(display: dict[str, Any]) -> None:
+    glance = glance_section(display)
+    columns = grid_columns(glance)
+
+    assert packed_cells(glance["cards"], columns) == {(row, column) for row in range(3) for column in range(columns)}
 
 
 async def test_wallboard_glance_band_cards_are_in_the_manifest(hass: HomeAssistant, display: dict[str, Any]) -> None:

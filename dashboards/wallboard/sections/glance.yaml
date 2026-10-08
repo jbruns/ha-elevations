@@ -20,7 +20,7 @@ cards:
     timezone: Europe/London
     parentStyle: 'grid-area: london; font-size: 1.2em; opacity: 0.75;'
   grid_options:
-    columns: 3
+    columns: 9
     rows: 3
 # Now/Next: timed events only, from the Household Schedule calendars, via the
 # package's sensor.wallboard_now_next. Times compare as local ISO strings.
@@ -49,7 +49,7 @@ cards:
     style: |
       ha-card { font-size: 1.7rem; line-height: 1.3; }
   grid_options:
-    columns: 4
+    columns: 12
     rows: 2
 # Current weather and a quiet AQI value, red above 100. AQI is never an
 # Attention Item: Safety owns a Limit Breach.
@@ -84,7 +84,7 @@ cards:
       ha-card { font-size: 1.5rem; line-height: 1.3; }
       ha-card ha-markdown { --mdc-icon-size: 2.2rem; }
   grid_options:
-    columns: 2
+    columns: 6
     rows: 2
 - type: custom:hourly-weather
   entity: '{WEATHER_ENTITY}'
@@ -99,7 +99,7 @@ cards:
   tap_action:
     action: none
   grid_options:
-    columns: 3
+    columns: 9
     rows: 2
 # Attention strip, most severe first: Immediate Hazard (Safety), Exterior Door
 # (Climate), garage door open, Unlocked Door, Finished Cycle, bins out. A tap
@@ -118,6 +118,7 @@ cards:
       {%- set hazards = '{SAFETY_IMMEDIATE_HAZARDS_ROLE}' -%}
       {%- set doors = '{CLIMATE_EXTERIOR_DOORS_ROLE}' -%}
       {%- set quiet = {'action': 'none'} -%}
+      {%- set acknowledge = {'action': 'perform-action', 'perform_action': 'script.wallboard_acknowledge'} -%}
       {%- if is_state(hazards, 'on') -%}
         {{ {'type': 'template', 'icon': 'mdi:alert-octagon', 'icon_color': 'red', 'tap_action': quiet,
           'content': (state_attr(hazards, 'entity_id') or []) | select('is_state', 'on')
@@ -141,17 +142,15 @@ cards:
         ('binary_sensor.wallboard_dryer_finished_cycle', 'dryer', 'mdi:tumble-dryer-alert'),
       ] if is_state(finished, 'on') -%}
         {{ {'type': 'template', 'icon': icon, 'icon_color': 'amber', 'content': 'Unload ' ~ appliance,
-          'tap_action': {'action': 'perform-action', 'perform_action': 'script.wallboard_acknowledge',
-            'data': {'attention_item': finished}}} }},
+          'tap_action': dict(acknowledge, data={'attention_item': finished})} }},
       {%- endfor -%}
       {%- if is_state('binary_sensor.wallboard_bins_out', 'on') -%}
         {{ {'type': 'template', 'icon': 'mdi:delete-empty', 'icon_color': 'amber',
           'content': 'Bins out: ' ~ state_attr('binary_sensor.wallboard_bins_out', 'bins'),
-          'tap_action': {'action': 'perform-action', 'perform_action': 'script.wallboard_acknowledge',
-            'data': {'attention_item': 'binary_sensor.wallboard_bins_out'}}} }},
+          'tap_action': dict(acknowledge, data={'attention_item': 'binary_sensor.wallboard_bins_out'})} }},
       {%- endif -%}
   grid_options:
-    columns: 7
+    columns: 21
     rows: 1
 # Running appliances: a quiet icon each, never an Attention Item.
 - type: custom:auto-entities
@@ -173,5 +172,5 @@ cards:
         {{ {'type': 'template', 'icon': icon, 'icon_color': 'disabled', 'tap_action': {'action': 'none'}} }},
       {%- endfor -%}
   grid_options:
-    columns: 2
+    columns: 6
     rows: 1
