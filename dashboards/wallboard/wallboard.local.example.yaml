@@ -6,6 +6,7 @@ CHILD_A_NAME: Child A
 CHILD_B_CHOREOPS_DASHBOARD_HELPER: sensor.example_child_b_choreops_ui_dashboard_helper
 CHILD_B_NAME: Child B
 COLLECTION_CALENDAR: calendar.example_collection
+COUNTDOWN_HOLIDAYS: ["Halloween", "Thanksgiving Day", "Christmas Day", "New Year's Day"]
 DISHWASHER_POWER_SENSOR: sensor.example_dishwasher_power
 DRYER_POWER_SENSOR: sensor.example_dryer_power
 FAMILY_CALENDAR: calendar.example_family
@@ -14,12 +15,13 @@ TRIPS_BREAKS_CALENDAR: calendar.example_trips_breaks
 US_HOLIDAYS_CALENDAR: calendar.example_us_holidays
 WASHER_POWER_SENSOR: sensor.example_washer_power
 WEATHER_ENTITY: weather.example
-FRONT_ENTRY_LOCK: lock.example_front_entry
-FRONT_ENTRY_LABEL: Front Entry
-GARAGE_ENTRY_LOCK: lock.example_garage_entry
-GARAGE_ENTRY_LABEL: Garage Entry
-SIDE_ENTRY_LOCK: lock.example_side_entry
-SIDE_ENTRY_LABEL: Side Entry
+FRONT_DOOR_LOCK: lock.example_front_door
+FRONT_DOOR_LABEL: Front Door
+SIDE_DOOR_LOCK: lock.example_side_door
+SIDE_DOOR_LABEL: Side Door
+DOOR_INTO_GARAGE_LOCK: lock.example_door_into_garage
+DOOR_INTO_GARAGE_LABEL: Door into Garage
+GARAGE_DOOR_COVER: cover.example_garage_door
 SHOPPING_LIST_TODO: todo.example_shopping_list
 FAMILY_REMINDERS_TODO: todo.example_family_reminders
 AFTER_SCHOOL_TASKS_TODO: todo.example_after_school_tasks
