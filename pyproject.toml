@@ -17,7 +17,7 @@ package = false
 
 [tool.pytest.ini_options]
 # The repo-wide checks, then every context's tests (ADR 0007).
-testpaths = ["tests", "*/tests"]
+testpaths = ["tests", "*/tests", "*/*/tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
