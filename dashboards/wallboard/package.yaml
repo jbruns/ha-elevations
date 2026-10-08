@@ -1,16 +1,30 @@
 # Optional Wallboard package. Render with the Wallboard overlay before installing.
+# Every role here is Wallboard-local: nothing outside the Wallboard reads it (ADR 0010).
+script:
+  # A card taps this to clear an Attention Item, passing its entity ID.
+  wallboard_acknowledge:
+    alias: Wallboard Acknowledge
+    icon: mdi:check
+    mode: queued
+    fields:
+      attention_item:
+        description: The Attention Item's entity ID.
+        required: true
+        selector:
+          entity:
+    sequence:
+      - event: wallboard_acknowledge
+        event_data:
+          attention_item: "{{ attention_item }}"
+
 template:
   - binary_sensor:
-      - name: "Wallboard Any Entry Unlocked"
-        unique_id: wallboard_any_entry_unlocked
+      - name: "Wallboard Unlocked Door"
+        unique_id: wallboard_unlocked_door
         icon: mdi:lock-open-alert
         device_class: lock
         state: >-
-          {{
-            is_state('{FRONT_ENTRY_LOCK}', 'unlocked') or
-            is_state('{GARAGE_ENTRY_LOCK}', 'unlocked') or
-            is_state('{SIDE_ENTRY_LOCK}', 'unlocked')
-          }}
+          {{ states('sensor.wallboard_unlocked_doors') not in ['', 'unknown', 'unavailable'] }}
 
       - name: "Wallboard Washer Active"
         unique_id: wallboard_washer_active
@@ -35,19 +49,167 @@ template:
         delay_on: "00:02:00"
         delay_off: "00:30:00"
 
+  # Finished Cycle: a washer or dryer load that has stopped running, until
+  # acknowledged, the next load starts, or 3 hours pass. Trigger-based, so it,
+  # its timeout and a load still running survive a restart.
+  - triggers:
+      - trigger: state
+        entity_id: binary_sensor.wallboard_washer_active
+        to: "on"
+        id: running
+      - trigger: state
+        entity_id: binary_sensor.wallboard_washer_active
+        to: "off"
+        id: stopped
+      - trigger: event
+        event_type: wallboard_acknowledge
+        event_data:
+          attention_item: binary_sensor.wallboard_washer_finished_cycle
+    binary_sensor:
+      - name: "Wallboard Washer Finished Cycle"
+        unique_id: wallboard_washer_finished_cycle
+        icon: mdi:washing-machine-alert
+        state: "{{ trigger.id == 'stopped' and this.attributes.get('running', false) }}"
+        auto_off: "03:00:00"
+        attributes:
+          running: "{{ trigger.id == 'running' or (trigger.id != 'stopped' and this.attributes.get('running', false)) }}"
+
+  - triggers:
+      - trigger: state
+        entity_id: binary_sensor.wallboard_dryer_active
+        to: "on"
+        id: running
+      - trigger: state
+        entity_id: binary_sensor.wallboard_dryer_active
+        to: "off"
+        id: stopped
+      - trigger: event
+        event_type: wallboard_acknowledge
+        event_data:
+          attention_item: binary_sensor.wallboard_dryer_finished_cycle
+    binary_sensor:
+      - name: "Wallboard Dryer Finished Cycle"
+        unique_id: wallboard_dryer_finished_cycle
+        icon: mdi:tumble-dryer-alert
+        state: "{{ trigger.id == 'stopped' and this.attributes.get('running', false) }}"
+        auto_off: "03:00:00"
+        attributes:
+          running: "{{ trigger.id == 'running' or (trigger.id != 'stopped' and this.attributes.get('running', false)) }}"
+
+  # Collection Day: from 17:00 the evening before until midnight, the bins go
+  # out, until a tap acknowledges them for that Collection Day.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: 0
+      - trigger: event
+        event_type: wallboard_acknowledge
+        event_data:
+          attention_item: binary_sensor.wallboard_bins_out
+        id: acknowledge
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id: {COLLECTION_CALENDAR}
+        data:
+          start_date_time: "{{ (today_at() + timedelta(days=1)).isoformat() }}"
+          end_date_time: "{{ (today_at() + timedelta(days=2)).isoformat() }}"
+        response_variable: collection
+      - variables:
+          collection_day: "{{ (today_at() + timedelta(days=1)).date() | string }}"
+          bins: >-
+            {{ collection['{COLLECTION_CALENDAR}'].events
+              | selectattr('start', 'search', '^' ~ collection_day)
+              | map(attribute='summary') | unique | sort | join(' + ') }}
+    binary_sensor:
+      - name: "Wallboard Bins Out"
+        unique_id: wallboard_bins_out
+        icon: mdi:delete-empty
+        state: >-
+          {% set acknowledged = (trigger.id == 'acknowledge' and this.state == 'on')
+            or this.attributes.get('acknowledged') == collection_day %}
+          {{ now().hour >= 17 and bins != '' and not acknowledged }}
+        attributes:
+          bins: "{{ bins }}"
+          # The Collection Day whose bins out a tap cleared.
+          acknowledged: >-
+            {{ collection_day if trigger.id == 'acknowledge' and this.state == 'on'
+              else this.attributes.get('acknowledged') }}
+
+  # Countdown: up to four, soonest first. Trips and breaks and allowlisted
+  # holidays within 90 days, birthdays within 30. Each drops off once it starts.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: /15
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id:
+            - {TRIPS_BREAKS_CALENDAR}
+            - {US_HOLIDAYS_CALENDAR}
+        data:
+          start_date_time: "{{ now().isoformat() }}"
+          end_date_time: "{{ (today_at() + timedelta(days=91)).isoformat() }}"
+        response_variable: anticipated
+      - action: calendar.get_events
+        target:
+          entity_id: {BIRTHDAYS_CALENDAR}
+        data:
+          start_date_time: "{{ now().isoformat() }}"
+          end_date_time: "{{ (today_at() + timedelta(days=31)).isoformat() }}"
+        response_variable: birthdays
+      - variables:
+          countdowns: >-
+            {% set holidays = {COUNTDOWN_HOLIDAYS} %}
+            {% set events = anticipated['{TRIPS_BREAKS_CALENDAR}'].events
+              + (anticipated['{US_HOLIDAYS_CALENDAR}'].events
+                 | selectattr('summary', 'in', holidays) | list)
+              + birthdays['{BIRTHDAYS_CALENDAR}'].events %}
+            {% set today = now().date() %}
+            {% set ns = namespace(countdowns=[]) %}
+            {% for event in events | sort(attribute='start') %}
+              {% set day = event.start[:10] %}
+              {% set started = as_datetime(event.start) <= now() if 'T' in event.start
+                else day <= today | string %}
+              {% if not started %}
+                {% set ns.countdowns = ns.countdowns + [{
+                  'title': event.summary,
+                  'date': day,
+                  'days': (strptime(day, '%Y-%m-%d').date() - today).days,
+                }] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.countdowns[:4] }}
+    sensor:
+      - name: "Wallboard Countdowns"
+        unique_id: wallboard_countdowns
+        icon: mdi:calendar-clock
+        state: "{{ countdowns | count }}"
+        attributes:
+          countdowns: "{{ countdowns }}"
+
   - sensor:
-      - name: "Wallboard Unlocked Entries"
-        unique_id: wallboard_unlocked_entries
+      # Unlocked Door: between sunset and sunrise, or while not Household Home
+      # (Climate's term, from zone.home as in ADR 0005). The door into the
+      # garage counts only while the garage door is open.
+      - name: "Wallboard Unlocked Doors"
+        unique_id: wallboard_unlocked_doors
         icon: mdi:lock-open-alert
         state: >-
-          {% set unlocked = [] %}
-          {% if is_state('{FRONT_ENTRY_LOCK}', 'unlocked') %}
-            {% set unlocked = unlocked + ['{FRONT_ENTRY_LABEL}'] %}
-          {% endif %}
-          {% if is_state('{GARAGE_ENTRY_LOCK}', 'unlocked') %}
-            {% set unlocked = unlocked + ['{GARAGE_ENTRY_LABEL}'] %}
-          {% endif %}
-          {% if is_state('{SIDE_ENTRY_LOCK}', 'unlocked') %}
-            {% set unlocked = unlocked + ['{SIDE_ENTRY_LABEL}'] %}
-          {% endif %}
-          {{ unlocked | join(', ') if unlocked else 'All locked' }}
+          {% set watching = is_state('sun.sun', 'below_horizon')
+            or states('zone.home') | int(0) == 0 %}
+          {% set garage_open = states('{GARAGE_DOOR_COVER}') in ['open', 'opening', 'closing'] %}
+          {% set doors = [
+            ('{FRONT_DOOR_LOCK}', '{FRONT_DOOR_LABEL}', true),
+            ('{SIDE_DOOR_LOCK}', '{SIDE_DOOR_LABEL}', true),
+            ('{DOOR_INTO_GARAGE_LOCK}', '{DOOR_INTO_GARAGE_LABEL}', garage_open),
+          ] %}
+          {% set ns = namespace(unlocked=[]) %}
+          {% for lock, label, counts in doors
+            if watching and counts and is_state(lock, 'unlocked') %}
+            {% set ns.unlocked = ns.unlocked + [label] %}
+          {% endfor %}
+          {{ ns.unlocked | join(', ') }}

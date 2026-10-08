@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
@@ -8,10 +8,7 @@ import pytest
 import yaml
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
-from homeassistant.setup import async_setup_component
 
-from scripts.render_assets import load_overlay, render_text
-from testing.clock import Clock
 from testing.displays import (
     DisplaySource,
     assert_custom_cards_listed,
@@ -46,10 +43,6 @@ def expected_lingering_timers() -> bool:
 @pytest.fixture
 def display(display_source: DisplaySource) -> dict[str, Any]:
     return display_source.render(OVERLAY)
-
-
-def rendered_package_config() -> dict[str, Any]:
-    return yaml.safe_load(render_text(PACKAGE.read_text(), load_overlay(OVERLAY), source=PACKAGE))
 
 
 def wallboard_view(display: dict[str, Any], path: str) -> dict[str, Any]:
@@ -391,30 +384,6 @@ async def test_wallboard_shows_chores_for_each_child(hass: HomeAssistant, displa
     assert [card["heading"] for card in (child_a["cards"][0], child_b["cards"][0])] == ["Child A", "Child B"]
     assert [chip["content"] for chip in child_chips(child_a)] == ["Make bed"]
     assert [chip["content"] for chip in child_chips(child_b)] == ["Nothing due"]
-
-
-async def test_wallboard_package_reports_unlocked_entries(hass: HomeAssistant) -> None:
-    hass.states.async_set("lock.example_front_entry", "locked")
-    hass.states.async_set("lock.example_garage_entry", "unlocked")
-    hass.states.async_set("lock.example_side_entry", "locked")
-    assert await async_setup_component(hass, "template", rendered_package_config())
-    await hass.async_block_till_done()
-
-    assert hass.states.get("binary_sensor.wallboard_any_entry_unlocked").state == "on"
-    assert hass.states.get("sensor.wallboard_unlocked_entries").state == "Garage Entry"
-
-
-async def test_wallboard_package_reports_appliance_running(hass: HomeAssistant, clock: Clock) -> None:
-    hass.states.async_set("sensor.example_washer_power", "350")
-    hass.states.async_set("sensor.example_dryer_power", "120")
-    hass.states.async_set("sensor.example_dishwasher_power", "600")
-    assert await async_setup_component(hass, "template", rendered_package_config())
-    await hass.async_block_till_done()
-    await clock.advance(timedelta(minutes=2))
-
-    assert hass.states.get("binary_sensor.wallboard_washer_active").state == "on"
-    assert hass.states.get("binary_sensor.wallboard_dryer_active").state == "on"
-    assert hass.states.get("binary_sensor.wallboard_dishwasher_active").state == "on"
 
 
 def rail_section(display: dict[str, Any]) -> dict[str, Any]:

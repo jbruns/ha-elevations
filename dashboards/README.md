@@ -33,10 +33,14 @@ uv run python scripts/render-asset.py template \
 
 `wallboard/package.yaml` is optional support for Wallboard-local roles. The Wallboard does not show these roles yet:
 
-- **Unlocked Entries**: `binary_sensor.wallboard_any_entry_unlocked` and `sensor.wallboard_unlocked_entries`.
-- **Appliance Running**: `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`.
+- **Unlocked Door**: `binary_sensor.wallboard_unlocked_door`, on while any door is an Unlocked Door, and `sensor.wallboard_unlocked_doors`, whose state names them, such as `Front Door, Side Door`. Household Home comes from `zone.home`, as in Climate (ADR 0005), and sunset to sunrise from `sun.sun`. The overlay names the door into the garage, which counts only while the garage door cover is open.
+- **Appliance running**: `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`. A running appliance is not an Attention Item.
+- **Finished Cycle**: `binary_sensor.wallboard_washer_finished_cycle` and `binary_sensor.wallboard_dryer_finished_cycle`. Each turns on when its appliance's running sensor turns off, after that sensor's off delay, and turns off when acknowledged, when the next load starts or after 3 hours. It survives a restart, even one in the middle of a load. The dishwasher has none.
+- **Collection Day**: `binary_sensor.wallboard_bins_out`, on from 17:00 the evening before a Collection Day until midnight. Its `bins` attribute names the bins once each, such as `Recycle + Solid Waste`, from the Collection calendar's all-day events.
+- **Countdown**: `sensor.wallboard_countdowns`, whose `countdowns` attribute lists up to four, soonest first, each with `title`, `date` and `days`. It counts trips and breaks and the holidays listed in the overlay's `COUNTDOWN_HOLIDAYS` within 90 days, and birthdays within 30. A Countdown drops off once its event starts.
+- **Acknowledge**: a card taps `script.wallboard_acknowledge` with `attention_item` set to a Finished Cycle or `binary_sensor.wallboard_bins_out` to clear it. Bins out stays cleared until the next Collection Day's evening.
 
-The package uses the same overlay as the Display for the entry locks, entry labels and appliance power sensors. Nothing outside the Wallboard may read those Wallboard-local entities (ADR 0010).
+The package uses the same overlay as the Display. Nothing outside the Wallboard may read those Wallboard-local entities (ADR 0010).
 
 ### Chores
 
@@ -50,15 +54,15 @@ ChoreOps refuses a Claim from a Home Assistant user it does not authorize for th
 - A weather entity for the Household Schedule forecast.
 - To-do lists for Shopping Items, Reminders and After-School Tasks, shown on the rail with the built-in to-do list card.
 - Family's School Day helper for today, the Toggle helper kept up to date by the School Day blueprint. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders on the rail.
-- Entry locks and appliance power sensors named in the local overlay, for the Wallboard support package above.
+- Door locks, the garage door cover and appliance power sensors named in the local overlay, plus `sun.sun` and `zone.home`, for the Wallboard support package above.
 - ChoreOps, with a dashboard helper sensor for each child named in the local overlay.
 - Custom cards listed in `custom-cards.yaml`: week-planner-card, auto-entities, Mushroom, card-mod and kiosk-mode.
 - The Wallboard base theme in `wallboard/themes/wallboard.yaml`, selected in the kiosk browser's profile.
 
 ### Install
 
-1. Copy the rendered `wallboard/build/package.yaml` into Home Assistant's packages, then restart or reload template entities.
-2. Check that the Wallboard-local role entities exist and update: `binary_sensor.wallboard_any_entry_unlocked`, `sensor.wallboard_unlocked_entries`, `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`.
+1. Copy the rendered `wallboard/build/package.yaml` into Home Assistant's packages, then restart Home Assistant.
+2. Check that the Wallboard-local role entities listed above exist and update.
 3. Paste the rendered `wallboard/build/wallboard.yaml` into the raw configuration editor of a new storage dashboard, alongside the current Wallboard. Do not paste over the current Wallboard until cutover.
 4. Copy `wallboard/themes/wallboard.yaml` into Home Assistant's themes folder, run **Reload themes**, then select the **Wallboard** theme in the kiosk browser's profile. The view pins no theme (ADR 0011). This base theme only widens the sections view columns so the three columns fill a 1920px screen; everything else keeps Home Assistant's defaults. Seasonal Look themes will build on it.
 5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling. Tap the Household Schedule heading: Month opens as a month grid without scrolling, and its heading returns to the main view.
