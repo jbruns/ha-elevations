@@ -31,16 +31,23 @@ uv run python scripts/render-asset.py template \
   --output dashboards/wallboard/build/package.yaml
 ```
 
-`wallboard/package.yaml` is optional support for Wallboard-local roles. The Wallboard does not show these roles yet:
+`wallboard/package.yaml` is optional support for Wallboard-local roles. The rail shows Countdowns and School Lunch; the Wallboard does not show the other roles yet:
 
 - **Unlocked Door**: `binary_sensor.wallboard_unlocked_door`, on while any door is an Unlocked Door, and `sensor.wallboard_unlocked_doors`, whose state names them, such as `Front Door, Side Door`. Household Home comes from `zone.home`, as in Climate (ADR 0005), and sunset to sunrise from `sun.sun`. The overlay names the door into the garage, which counts only while the garage door cover is open.
 - **Appliance running**: `binary_sensor.wallboard_washer_active`, `binary_sensor.wallboard_dryer_active` and `binary_sensor.wallboard_dishwasher_active`. A running appliance is not an Attention Item.
 - **Finished Cycle**: `binary_sensor.wallboard_washer_finished_cycle` and `binary_sensor.wallboard_dryer_finished_cycle`. Each turns on when its appliance's running sensor turns off, after that sensor's off delay, and turns off when acknowledged, when the next load starts or after 3 hours. It survives a restart, even one in the middle of a load. The dishwasher has none.
 - **Collection Day**: `binary_sensor.wallboard_bins_out`, on from 17:00 the evening before a Collection Day until midnight. Its `bins` attribute names the bins once each, such as `Recycle + Solid Waste`, from the Collection calendar's all-day events.
 - **Countdown**: `sensor.wallboard_countdowns`, whose `countdowns` attribute lists up to four, soonest first, each with `title`, `date` and `days`. It counts trips and breaks and the holidays listed in the overlay's `COUNTDOWN_HOLIDAYS` within 90 days, and birthdays within 30. A Countdown drops off once its event starts.
+- **School Lunch**: `sensor.wallboard_school_lunch`, whose `today` and `tomorrow` attributes name that day's lunch from the School Lunch calendar's all-day events, without a leading `Lunch:`. Either is empty on a day without one.
 - **Acknowledge**: a card taps `script.wallboard_acknowledge` with `attention_item` set to a Finished Cycle or `binary_sensor.wallboard_bins_out` to clear it. Bins out stays cleared until the next Collection Day's evening.
 
 The package uses the same overlay as the Display. Nothing outside the Wallboard may read those Wallboard-local entities (ADR 0010).
+
+### Today and Countdowns
+
+The rail opens with the Today block. On a School Day it shows a School Day banner, each child's Special Class and today's School Lunch; from 15:00 it adds tomorrow's lunch when tomorrow is a School Day too. A child whose helper says `No class` is left out. On any other day it shows tomorrow's lunch under a "School Day tomorrow" banner when tomorrow is a School Day, and hides when it is not, so Countdowns move up. Family publishes only today's Special Class, so the block has none for tomorrow.
+
+Countdowns follow: up to four from `sensor.wallboard_countdowns`, soonest first, each with the days left, or Today or Tomorrow. The card hides when there are none.
 
 ### Chores
 
@@ -53,7 +60,8 @@ ChoreOps refuses a Claim from a Home Assistant user it does not authorize for th
 - Calendars for family events, appointments, trips/breaks, birthdays, US holidays, school closures and Collection Day.
 - A weather entity for the Household Schedule forecast.
 - To-do lists for Shopping Items, Reminders and After-School Tasks, shown on the rail with the built-in to-do list card.
-- Family's School Day helper for today, the Toggle helper kept up to date by the School Day blueprint. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders on the rail.
+- Family's School Day helpers for today and tomorrow, the Toggle helpers kept up to date by the School Day blueprint. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders on the rail.
+- Family's Special Class helper for each child, kept up to date by the Special Classes blueprint, and a School Lunch calendar with one all-day event per School Day, for the Today block.
 - Door locks, the garage door cover and appliance power sensors named in the local overlay, plus `sun.sun` and `zone.home`, for the Wallboard support package above.
 - ChoreOps, with a dashboard helper sensor for each child named in the local overlay.
 - Custom cards listed in `custom-cards.yaml`: week-planner-card, auto-entities, Mushroom, card-mod and kiosk-mode.

@@ -44,7 +44,7 @@ async def wallboard_calendars(hass: HomeAssistant) -> dict[str, Calendar]:
     """The calendars the package reads, at their placeholder IDs; empty unless a test fills them."""
     calendars = {
         name: Calendar(f"calendar.example_{name}", name)
-        for name in ("collection", "trips_breaks", "us_holidays", "birthdays")
+        for name in ("collection", "trips_breaks", "us_holidays", "birthdays", "school_lunch")
     }
     setup_test_component_platform(hass, "calendar", list(calendars.values()))
     assert await async_setup_component(hass, "calendar", {"calendar": {"platform": "test"}})
@@ -427,3 +427,46 @@ async def test_a_countdown_disappears_once_its_event_starts(
     await clock.move_to(datetime(2026, 10, 8, 14, 0))
 
     assert countdowns(hass) == [{"title": "New Year's Day", "date": "2027-01-01", "days": 85}]
+
+
+# School Lunch
+
+SCHOOL_LUNCH = "sensor.wallboard_school_lunch"
+
+
+def school_lunch(hass: HomeAssistant) -> tuple[str, str]:
+    attributes = hass.states.get(SCHOOL_LUNCH).attributes
+    return attributes["today"], attributes["tomorrow"]
+
+
+async def test_school_lunch_names_todays_and_tomorrows_lunch(
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
+) -> None:
+    await wallboard_calendars["school_lunch"].set_events(
+        [
+            all_day(date(2026, 10, 8), "Lunch: Cheese Pizza Slice"),
+            all_day(date(2026, 10, 9), "Lunch: Roasted Chicken"),
+            all_day(date(2026, 10, 12), "Lunch: Lasagna"),
+        ]
+    )
+    await clock.move_to(datetime(2026, 10, 8, 10, 0))
+    await setup_package(hass)
+    await start_home_assistant(hass)
+
+    assert school_lunch(hass) == ("Cheese Pizza Slice", "Roasted Chicken")
+    assert hass.states.get(SCHOOL_LUNCH).state == "Cheese Pizza Slice"
+
+    await clock.move_to(datetime(2026, 10, 9, 0, 0))
+
+    assert school_lunch(hass) == ("Roasted Chicken", "")
+
+
+async def test_school_lunch_is_empty_on_a_day_without_one(
+    hass: HomeAssistant, clock: Clock, wallboard_calendars: dict[str, Calendar]
+) -> None:
+    await wallboard_calendars["school_lunch"].set_events([all_day(date(2026, 10, 12), "Lunch: Lasagna")])
+    await clock.move_to(datetime(2026, 10, 10, 10, 0))
+    await setup_package(hass)
+    await start_home_assistant(hass)
+
+    assert school_lunch(hass) == ("", "")

@@ -9,6 +9,7 @@ import yaml
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
 
+from testing.clock import Clock
 from testing.displays import (
     DisplaySource,
     assert_custom_cards_listed,
@@ -97,10 +98,13 @@ def week_planner_card(display: dict[str, Any]) -> dict[str, Any]:
 
 SECTION_GRID_COLUMNS = 12
 SCHOOL_DAY = "input_boolean.example_school_day_today"
-# A weekday morning and afternoon, on and off a School Day.
+SCHOOL_DAY_TOMORROW = "input_boolean.example_school_day_tomorrow"
+COUNTDOWNS = "sensor.wallboard_countdowns"
+# A weekday morning and afternoon, on and off a School Day, before a School Day or not.
 WALLBOARD_MOMENTS = [
-    ({SCHOOL_DAY: school_day}, datetime(2026, 10, 7, hour, 0))
+    ({SCHOOL_DAY: school_day, SCHOOL_DAY_TOMORROW: tomorrow, COUNTDOWNS: "4"}, datetime(2026, 10, 7, hour, 0))
     for school_day in ("on", "off")
+    for tomorrow in ("on", "off")
     for hour in (8, 15)
 ]
 
@@ -118,6 +122,9 @@ def condition_holds(condition: dict[str, Any], states: dict[str, str], now: date
         if "state" in condition:
             return state == condition["state"]
         return state != condition["state_not"]
+    if kind == "numeric_state":
+        value = float(states[condition["entity"]])
+        return value > condition.get("above", float("-inf")) and value < condition.get("below", float("inf"))
     if kind == "time":
         after = time.fromisoformat(condition.get("after", "00:00"))
         before = time.fromisoformat(condition.get("before", "23:59:59"))
@@ -537,3 +544,146 @@ async def test_wallboard_chore_cards_are_in_the_manifest(hass: HomeAssistant, di
     set_child_chores(hass, "child_b", [])
 
     assert_custom_cards_listed({"cards": children_chores(hass, display)}, CUSTOM_CARDS)
+
+
+# Today and Countdowns
+
+SCHOOL_LUNCH = "sensor.wallboard_school_lunch"
+
+
+def rail_card(display: dict[str, Any], entity: str) -> dict[str, Any]:
+    [card] = [card for card in rail_section(display)["cards"] if entity in repr(card.get("content", ""))]
+    return card
+
+
+def today_card(display: dict[str, Any]) -> dict[str, Any]:
+    return rail_card(display, SCHOOL_LUNCH)
+
+
+def countdowns_card(display: dict[str, Any]) -> dict[str, Any]:
+    return rail_card(display, COUNTDOWNS)
+
+
+async def show_today(
+    hass: HomeAssistant,
+    clock: Clock,
+    display: dict[str, Any],
+    when: datetime,
+    *,
+    today: str,
+    tomorrow: str,
+    classes: tuple[str, str] = ("Library", "PE"),
+    lunch: tuple[str, str] = ("Cheese Pizza Slice", "Roasted Chicken"),
+) -> str | None:
+    """The Today block as shown at a moment, or None while it is hidden."""
+    states = {SCHOOL_DAY: today, SCHOOL_DAY_TOMORROW: tomorrow, COUNTDOWNS: "0"}
+    for entity, state in states.items():
+        hass.states.async_set(entity, state)
+    hass.states.async_set("input_select.example_child_a_special_class", classes[0])
+    hass.states.async_set("input_select.example_child_b_special_class", classes[1])
+    hass.states.async_set(SCHOOL_LUNCH, lunch[0], {"today": lunch[0], "tomorrow": lunch[1]})
+    await clock.move_to(when)
+    card = today_card(display)
+    if not card_visible(card, states, when):
+        return None
+    return Template(card["content"], hass).async_render(parse_result=False)
+
+
+def test_wallboard_rail_orders_today_countdowns_chores_then_lists(display: dict[str, Any]) -> None:
+    cards = rail_section(display)["cards"]
+
+    assert cards[:3] == [today_card(display), countdowns_card(display), chores_card(display)]
+    assert [card["type"] for card in cards[3:]] == ["todo-list"] * 3
+
+
+async def test_wallboard_today_shows_the_school_day_special_classes_and_lunch(
+    hass: HomeAssistant, clock: Clock, display: dict[str, Any]
+) -> None:
+    shown = await show_today(hass, clock, display, datetime(2026, 10, 7, 8, 0), today="on", tomorrow="on")
+
+    assert "School Day" in shown
+    assert "Child A: Library" in shown
+    assert "Child B: PE" in shown
+    assert "Cheese Pizza Slice" in shown
+    assert "Roasted Chicken" not in shown
+
+
+async def test_wallboard_today_adds_tomorrows_lunch_from_3_pm(
+    hass: HomeAssistant, clock: Clock, display: dict[str, Any]
+) -> None:
+    before = await show_today(hass, clock, display, datetime(2026, 10, 7, 14, 59), today="on", tomorrow="on")
+    after = await show_today(hass, clock, display, datetime(2026, 10, 7, 15, 0), today="on", tomorrow="on")
+    friday = await show_today(hass, clock, display, datetime(2026, 10, 9, 15, 0), today="on", tomorrow="off")
+
+    assert "Roasted Chicken" not in before
+    assert "Cheese Pizza Slice" in after
+    assert "Roasted Chicken" in after
+    assert "Roasted Chicken" not in friday
+
+
+async def test_wallboard_today_leaves_out_a_child_without_a_special_class(
+    hass: HomeAssistant, clock: Clock, display: dict[str, Any]
+) -> None:
+    one = await show_today(
+        hass, clock, display, datetime(2026, 10, 7, 8, 0), today="on", tomorrow="on", classes=("Art", "No class")
+    )
+    none = await show_today(
+        hass, clock, display, datetime(2026, 10, 7, 8, 0), today="on", tomorrow="on", classes=("No class", "Not set")
+    )
+
+    assert "Child A: Art" in one
+    assert "Child B" not in one
+    assert "Special Class" not in none
+
+
+async def test_wallboard_today_shows_tomorrows_school_info_before_a_school_day(
+    hass: HomeAssistant, clock: Clock, display: dict[str, Any]
+) -> None:
+    sunday = await show_today(
+        hass, clock, display, datetime(2026, 10, 11, 9, 0), today="off", tomorrow="on", lunch=("", "Roasted Chicken")
+    )
+
+    assert "School Day tomorrow" in sunday
+    assert "Roasted Chicken" in sunday
+    assert "Special Class" not in sunday
+
+
+async def test_wallboard_today_is_hidden_when_neither_today_nor_tomorrow_is_a_school_day(
+    hass: HomeAssistant, clock: Clock, display: dict[str, Any]
+) -> None:
+    saturday = await show_today(hass, clock, display, datetime(2026, 10, 10, 9, 0), today="off", tomorrow="off")
+
+    assert saturday is None
+
+
+async def test_wallboard_countdowns_show_days_until_each_anticipated_event(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
+    countdowns = [
+        {"title": "Flight out", "date": "2026-10-08", "days": 0},
+        {"title": "Sam's birthday", "date": "2026-10-09", "days": 1},
+        {"title": "Halloween", "date": "2026-10-31", "days": 23},
+        {"title": "Beach trip", "date": "2026-11-20", "days": 43},
+    ]
+    hass.states.async_set(COUNTDOWNS, "4", {"countdowns": countdowns})
+
+    shown = Template(countdowns_card(display)["content"], hass).async_render(parse_result=False)
+    lines = [line for line in re.split(r"<br>|\n", shown) if line.strip()]
+
+    assert len(lines) == 4
+    assert ["Flight out", "Sam's birthday", "Halloween", "Beach trip"] == [
+        next(title for title in ("Flight out", "Sam's birthday", "Halloween", "Beach trip") if title in line)
+        for line in lines
+    ]
+    assert "Today" in lines[0]
+    assert "Tomorrow" in lines[1]
+    assert "23 days" in lines[2]
+    assert "43 days" in lines[3]
+
+
+def test_wallboard_countdowns_are_hidden_when_there_are_none(display: dict[str, Any]) -> None:
+    card = countdowns_card(display)
+    now = datetime(2026, 10, 7, 8, 0)
+
+    assert not card_visible(card, {COUNTDOWNS: "0"}, now)
+    assert card_visible(card, {COUNTDOWNS: "1"}, now)
