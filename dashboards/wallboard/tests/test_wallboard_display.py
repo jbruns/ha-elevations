@@ -405,12 +405,16 @@ def rail_section(display: dict[str, Any]) -> dict[str, Any]:
     return wallboard_home(display)["sections"][2]
 
 
-def rail_list_cards(display: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {card["title"]: card for card in rail_section(display)["cards"] if card.get("type") == "todo-list"}
+def schedule_section(display: dict[str, Any]) -> dict[str, Any]:
+    return wallboard_home(display)["sections"][1]
 
 
-def test_wallboard_rail_shows_shopping_reminders_and_after_school_lists(display: dict[str, Any]) -> None:
-    lists = rail_list_cards(display)
+def list_cards(display: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {card["title"]: card for card in schedule_section(display)["cards"] if card.get("type") == "todo-list"}
+
+
+def test_wallboard_shows_shopping_reminders_and_after_school_lists_under_the_week_grid(display: dict[str, Any]) -> None:
+    lists = list_cards(display)
 
     assert {title: card["entity"] for title, card in lists.items()} == {
         "Shopping List": "todo.example_shopping_list",
@@ -419,8 +423,8 @@ def test_wallboard_rail_shows_shopping_reminders_and_after_school_lists(display:
     }
 
 
-def test_wallboard_rail_shows_after_school_tasks_only_on_school_day_afternoons(display: dict[str, Any]) -> None:
-    lists = rail_list_cards(display)
+def test_wallboard_shows_after_school_tasks_only_on_school_day_afternoons(display: dict[str, Any]) -> None:
+    lists = list_cards(display)
 
     shown = {
         (states[SCHOOL_DAY], now.hour): sorted(title for title, card in lists.items() if card_visible(card, states, now))
@@ -435,27 +439,27 @@ def test_wallboard_rail_shows_after_school_tasks_only_on_school_day_afternoons(d
     }
 
 
-def test_wallboard_rail_lists_fit_their_four_row_band(display: dict[str, Any]) -> None:
-    lists = list(rail_list_cards(display).values())
+def test_wallboard_lists_fit_their_four_row_band(display: dict[str, Any]) -> None:
+    lists = list(list_cards(display).values())
 
-    assert section_rows({"cards": lists}) == 4
+    assert section_rows({"cards": lists, "column_span": schedule_section(display)["column_span"]}) == 4
 
 
-def test_wallboard_rail_lists_hide_completed_items_and_keep_quick_add(display: dict[str, Any]) -> None:
-    for card in rail_list_cards(display).values():
+def test_wallboard_lists_hide_completed_items_and_keep_quick_add(display: dict[str, Any]) -> None:
+    for card in list_cards(display).values():
         assert card["hide_completed"] is True
         assert card.get("hide_create", False) is False
 
 
-def test_wallboard_rail_lists_use_only_the_built_in_todo_list_card(display: dict[str, Any]) -> None:
-    list_cards = [
+def test_wallboard_lists_use_only_the_built_in_todo_list_card(display: dict[str, Any]) -> None:
+    todo_cards = [
         node
-        for node in walk(rail_section(display))
+        for node in walk(wallboard_home(display))
         if isinstance(node, dict) and str(node.get("entity", "")).startswith("todo.")
     ]
 
-    assert len(list_cards) == 3
-    assert {card["type"] for card in list_cards} == {"todo-list"}
+    assert len(todo_cards) == 3
+    assert {card["type"] for card in todo_cards} == {"todo-list"}
 
 
 async def test_wallboard_lists_overdue_chores_first_then_due_today_up_to_six(
@@ -597,11 +601,15 @@ async def show_today(
     return Template(card["content"], hass).async_render(parse_result=False)
 
 
-def test_wallboard_rail_orders_today_countdowns_chores_then_lists(display: dict[str, Any]) -> None:
-    cards = rail_section(display)["cards"]
+def test_wallboard_rail_orders_today_countdowns_then_chores(display: dict[str, Any]) -> None:
+    assert rail_section(display)["cards"] == [today_card(display), countdowns_card(display), chores_card(display)]
 
-    assert cards[:3] == [today_card(display), countdowns_card(display), chores_card(display)]
-    assert [card["type"] for card in cards[3:]] == ["todo-list"] * 3
+
+def test_wallboard_household_schedule_puts_the_lists_beneath_the_week_grid(display: dict[str, Any]) -> None:
+    cards = schedule_section(display)["cards"]
+
+    assert cards[:2] == [heading_card(schedule_section(display)), week_planner_card(display)]
+    assert [card["type"] for card in cards[2:]] == ["todo-list"] * 3
 
 
 async def test_wallboard_today_shows_the_school_day_special_classes_and_lunch(
@@ -911,10 +919,12 @@ def set_every_attention_item(hass: HomeAssistant) -> None:
     hass.states.async_set(BINS_OUT, "on", {"bins": "Recycle + Solid Waste"})
 
 
-def test_wallboard_attention_strip_is_hidden_when_empty(hass: HomeAssistant, display: dict[str, Any]) -> None:
+def test_wallboard_attention_strip_shows_nothing_but_keeps_its_row_when_empty(
+    hass: HomeAssistant, display: dict[str, Any]
+) -> None:
     strip = attention_strip(display)
 
-    assert strip["show_empty"] is False
+    assert strip["show_empty"] is True
     assert attention_items(hass, display) == []
 
 
@@ -995,7 +1005,16 @@ def test_wallboard_glance_band_is_three_rows_whether_or_not_attention_items_show
     others = [card for card in glance["cards"] if card not in strips]
 
     assert section_rows(glance) == 3
-    assert packed_rows(others, grid_columns(glance)) == 3
+    assert packed_rows(others, grid_columns(glance)) == 2
+    assert attention_strip(display)["show_empty"] is True
+
+
+def test_wallboard_glance_band_cards_above_the_chips_share_one_height(display: dict[str, Any]) -> None:
+    glance = glance_section(display)
+    top = [card for card in glance["cards"] if card["type"] != "custom:auto-entities"]
+
+    assert {card["grid_options"]["rows"] for card in top} == {2}
+    assert sum(card["grid_options"]["columns"] for card in top) == grid_columns(glance)
 
 
 def test_wallboard_glance_band_fills_the_screen_width(display: dict[str, Any]) -> None:

@@ -1,27 +1,32 @@
 # Glance band: full width, three rows (about 18% of a 1080p screen), readable from 3 m.
-# Clock | Now/Next | current weather | hourly strip, with the Attention strip
-# and running appliances beneath. Both chip rows hide when empty.
+# Clock | Now/Next | current weather | hourly strip, all two rows tall, with the
+# Attention strip and running appliances beneath. The Attention strip keeps its
+# row when empty, so the band never changes height.
 type: grid
 column_span: 3
 cards:
 - type: custom:better-moment-card
   parentStyle: |
-    display: grid; grid-template-columns: 1fr 1fr; line-height: normal; text-align: center;
-    grid-template-areas: 'time time' 'date date' 'madrid london';
+    display: grid; grid-template-columns: auto 1fr 1fr; align-items: center; column-gap: 12px;
+    height: 100%; box-sizing: border-box; padding: 0 16px; line-height: normal; text-align: center;
+    grid-template-areas: 'time date date' 'time madrid london';
   moment:
   - format: h:mm
     parentStyle: 'grid-area: time; font-size: 4.6em; font-weight: 500;'
-  - format: cccc, LLLL d
-    parentStyle: 'grid-area: date; font-size: 1.6em;'
+  - format: ccc, LLL d
+    parentStyle: 'grid-area: date; font-size: 1.6em; align-self: end;'
   - format: "'Madrid' H:mm"
     timezone: Europe/Madrid
-    parentStyle: 'grid-area: madrid; font-size: 1.2em; opacity: 0.75;'
+    parentStyle: 'grid-area: madrid; font-size: 1.2em; opacity: 0.75; align-self: start;'
   - format: "'London' H:mm"
     timezone: Europe/London
-    parentStyle: 'grid-area: london; font-size: 1.2em; opacity: 0.75;'
+    parentStyle: 'grid-area: london; font-size: 1.2em; opacity: 0.75; align-self: start;'
+  card_mod:
+    style: |
+      ha-card { height: 100%; }
   grid_options:
     columns: 9
-    rows: 3
+    rows: 2
 # Now/Next: timed events only, from the Household Schedule calendars, via the
 # package's sensor.wallboard_now_next. Times compare as local ISO strings.
 - type: markdown
@@ -98,6 +103,11 @@ cards:
   show_precipitation_probability: true
   tap_action:
     action: none
+  card_mod:
+    style: |
+      :host { height: 100%; }
+      ha-card { height: 100%; box-sizing: border-box; overflow: hidden; }
+      .card-content { padding-top: 10px; padding-bottom: 6px; }
   grid_options:
     columns: 9
     rows: 2
@@ -105,7 +115,7 @@ cards:
 # (Climate), garage door open, Unlocked Door, Finished Cycle, bins out. A tap
 # acknowledges a Finished Cycle or bins out.
 - type: custom:auto-entities
-  show_empty: false
+  show_empty: true
   card:
     type: custom:mushroom-chips-card
     card_mod:
@@ -150,7 +160,7 @@ cards:
           'tap_action': dict(acknowledge, data={'attention_item': 'binary_sensor.wallboard_bins_out'})} }},
       {%- endif -%}
   grid_options:
-    columns: 21
+    columns: 30
     rows: 1
 # Running appliances: a quiet icon each, never an Attention Item.
 - type: custom:auto-entities

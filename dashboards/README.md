@@ -16,7 +16,7 @@ No blueprint depends on this package (ADR 0005).
 
 ## Wallboard
 
-`wallboard/display.yaml` renders the Wallboard from one sections view and one file per section. The view has a full-width glance band above the Household Schedule and a rail beside it. Tapping the Household Schedule heading opens the Month subview (`wallboard/month.yaml`): the Household Schedule calendars in Home Assistant's built-in calendar card as a month grid, and the Wallboard's only secondary view. Its heading leads back, since kiosk-mode hides the header's back arrow.
+`wallboard/display.yaml` renders the Wallboard from one sections view and one file per section. The view has a full-width glance band above the Household Schedule, with the lists beneath the week grid, and a rail beside it. Tapping the Household Schedule heading opens the Month subview (`wallboard/month.yaml`): the Household Schedule calendars in Home Assistant's built-in calendar card as a month grid, and the Wallboard's only secondary view. Its heading leads back, since kiosk-mode hides the header's back arrow.
 
 The Wallboard never creates events: the Month calendar card shows no add-event button. Tapping an event in Month opens its details, and for calendars that support deleting events, such as Local Calendar, that dialog still offers Delete. Month does not merge identical events, so a calendar that lists the same event twice, such as two `Recycle` events on one Collection Day, shows it twice there; the week planner shows it once. Month colours each calendar from its entity settings (**Settings → Entities → calendar → Color**), not from the week-planner-card colours; set them to match if wanted. Copy `wallboard/wallboard.local.example.yaml` to `wallboard/wallboard.local.yaml`, fill in this home's real values, then render with:
 
@@ -51,7 +51,7 @@ The glance band fills the top three rows, about 18% of a 1080p screen, in type s
 - **Clock**: the time and date, with small Madrid and London clocks.
 - **Now/Next**: the timed event happening now and when it ends, then the next one today: "in 45 min" within the hour, otherwise "at 6:30". With nothing left today it says so and shows tomorrow's first timed event.
 - **Weather**: the current condition and temperature, an hourly strip, and the outdoor AQI as a quiet value that turns red above 100. AQI is never an Attention Item: Safety owns a Limit Breach.
-- **Attention strip**: one chip per Attention Item, most severe first: Immediate Hazard (Safety role), Exterior Door (Climate role), garage door open, Unlocked Door, Finished Cycle, bins out. Tapping a Finished Cycle or bins out chip acknowledges it. The strip hides when nothing needs attention; when it is full, the least severe items drop off the end.
+- **Attention strip**: one chip per Attention Item, most severe first: Immediate Hazard (Safety role), Exterior Door (Climate role), garage door open, Unlocked Door, Finished Cycle, bins out. Tapping a Finished Cycle or bins out chip acknowledges it. The strip is empty but keeps its row when nothing needs attention, so the layout below never moves; when it is full, the least severe items drop off the end.
 - **Running appliances**: a quiet icon for each running washer, dryer or dishwasher, hidden when none run.
 
 ### Today and Countdowns
@@ -71,8 +71,8 @@ ChoreOps refuses a Claim from a Home Assistant user it does not authorize for th
 - Calendars for family events, appointments, trips/breaks, birthdays, US holidays, school closures and Collection Day.
 - A weather entity with hourly forecasts, for the glance band and the Household Schedule forecast.
 - Safety's Immediate Hazards role and Climate's Exterior Doors role, groups named in the local overlay, plus an outdoor AQI sensor and a label for the garage door.
-- To-do lists for Shopping Items, Reminders and After-School Tasks, shown on the rail with the built-in to-do list card.
-- Family's School Day helpers for today and tomorrow, the Toggle helpers kept up to date by the School Day blueprint. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders on the rail.
+- To-do lists for Shopping Items, Reminders and After-School Tasks, shown beneath the week grid with the built-in to-do list card.
+- Family's School Day helpers for today and tomorrow, the Toggle helpers kept up to date by the School Day blueprint. On a School Day afternoon (from 12:00), After-School Tasks take the place of Family Reminders.
 - Family's Special Class helper for each child, kept up to date by the Special Classes blueprint, and a school lunch calendar with one all-day event per School Day, for the Today card.
 - Door locks, the garage door cover and appliance power sensors named in the local overlay, plus `sun.sun` and `zone.home`, for the Wallboard support package above.
 - ChoreOps, with a dashboard helper sensor for each child named in the local overlay.
@@ -85,8 +85,8 @@ ChoreOps refuses a Claim from a Home Assistant user it does not authorize for th
 2. Check that the Wallboard-local role entities listed above exist and update.
 3. Paste the rendered `wallboard/build/wallboard.yaml` into the raw configuration editor of a new storage dashboard, alongside the current Wallboard. Do not paste over the current Wallboard until cutover.
 4. Copy `wallboard/themes/wallboard.yaml` into Home Assistant's themes folder, run **Reload themes**, then select the **Wallboard** theme in the kiosk browser's profile. The view pins no theme (ADR 0011). This base theme only widens the sections view columns so the three columns fill a 1920px screen; everything else keeps Home Assistant's defaults. Seasonal Look themes will build on it.
-5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling. The glance band shows the clocks, Now/Next, weather and AQI; the Attention strip is absent when nothing needs attention. Tap the Household Schedule heading: Month opens as a month grid without scrolling, and its heading returns to the main view.
-6. On the rail, add an item through each list's add field with the touch keyboard, and check that it appears in the matching to-do list.
+5. Verify the Wallboard opens without the header or sidebar and shows the glance band, Household Schedule and rail across one 1080p screen without scrolling. The glance band shows the clocks, Now/Next, weather and AQI; the Attention strip is empty when nothing needs attention. Tap the Household Schedule heading: Month opens as a month grid without scrolling, and its heading returns to the main view.
+6. Beneath the week grid, add an item through each list's add field with the touch keyboard, and check that it appears in the matching to-do list.
 
 ## Our Home
 

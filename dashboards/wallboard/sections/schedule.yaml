@@ -1,4 +1,5 @@
-# Household Schedule: about 2/3 of the width, below the glance band.
+# Household Schedule: about 2/3 of the width, below the glance band, with the
+# Lists beneath the week grid.
 type: grid
 column_span: 2
 cards:
@@ -70,10 +71,52 @@ cards:
     noEvents: No events
   card_mod:
     style: |
-      .day.today { box-sizing: border-box; border: 3px solid var(--accent-color, #03a9f4); border-radius: 10px; box-shadow: inset 0 0 8px var(--accent-color, #03a9f4); }
+      .day.today { box-sizing: border-box; padding: 2px 6px; border: 3px solid var(--accent-color, #03a9f4); border-radius: 10px; box-shadow: inset 0 0 8px var(--accent-color, #03a9f4); }
       .container .day .date { font-size: 1.05rem; font-weight: 700; line-height: 1.2; margin-bottom: 0.35rem; }
       .container .day.today .date { font-size: 0; }
       .container .day.today .date::before { content: 'Today'; font-size: 1.05rem; }
+      .container .day .weather { position: static !important; display: flex; align-items: center; gap: 4px; min-height: 28px; }
+      ha-card { height: 100%; overflow-y: auto; }
   grid_options:
     columns: full
-    rows: 11
+    rows: 8
+# Lists: two half-width lists in a 4-row band under the week grid. On a School
+# Day afternoon, After-School Tasks takes the Family Reminders slot.
+- type: todo-list
+  entity: '{SHOPPING_LIST_TODO}'
+  title: Shopping List
+  hide_completed: true
+  hide_section_headers: true
+  grid_options:
+    columns: 12
+    rows: 4
+- type: todo-list
+  entity: '{FAMILY_REMINDERS_TODO}'
+  title: Family Reminders
+  hide_completed: true
+  hide_section_headers: true
+  visibility:
+  - condition: or
+    conditions:
+    - condition: state
+      entity: '{TODAY_SCHOOL_DAY_HELPER}'
+      state_not: 'on'
+    - condition: time
+      before: '12:00'
+  grid_options:
+    columns: 12
+    rows: 4
+- type: todo-list
+  entity: '{AFTER_SCHOOL_TASKS_TODO}'
+  title: After-School Tasks
+  hide_completed: true
+  hide_section_headers: true
+  visibility:
+  - condition: state
+    entity: '{TODAY_SCHOOL_DAY_HELPER}'
+    state: 'on'
+  - condition: time
+    after: '12:00'
+  grid_options:
+    columns: 12
+    rows: 4
