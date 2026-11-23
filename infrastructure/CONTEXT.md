@@ -1,6 +1,6 @@
 # Infrastructure
 
-Tells the Administrator when a system the home depends on fails or recovers, which batteries need replacing, and which Insteon Devices are Unresponsive Devices, to Remove or Restore.
+Tells the Administrator when a system the home depends on fails or recovers, which batteries need replacing, and which Insteon Devices have become Unresponsive.
 
 ## Language
 
