@@ -55,3 +55,17 @@ async def test_setting_a_sensor_again_updates_its_state(
 
     assert hass.states.get("sensor.example_lock_battery").state == "10"
     assert hass.states.get("binary_sensor.example_leak").state == "on"
+
+
+async def test_a_sensor_can_belong_to_a_named_device(
+    hass: HomeAssistant, sensors: Sensors
+) -> None:
+    await sensors.set(
+        "sensor.example_dimmer_error", 1, integration="example_insteon", device="Example Dimmer"
+    )
+
+    device_name = Template(
+        "{{ device_attr(device_id('sensor.example_dimmer_error'), 'name') }}", hass
+    ).async_render()
+
+    assert device_name == "Example Dimmer"
