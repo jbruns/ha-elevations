@@ -19,3 +19,7 @@ _Avoid_: Resolved, cleared
 **Battery Digest**:
 A daily list of batteries that are low or have stopped reporting, sent only when the list is not empty.
 _Avoid_: Battery alert, low battery notification
+
+**Unresponsive Devices Digest**:
+A daily list of Insteon Devices reporting communication errors, sent to the Administrator only when the list is not empty.
+_Avoid_: Insteon alert, comm error notification
