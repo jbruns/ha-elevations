@@ -1,9 +1,9 @@
 blueprint:
   name: Unresponsive Devices Digest
   description: >-
-    Once a day, sends the Administrator a list of the Insteon Devices whose
-    communication-error sensors report errors. Sends nothing when every Device
-    answers. Only the Administrator is ever notified (ADR 0006).
+    Once a day, sends the Administrator a list of the Unresponsive Devices:
+    the Insteon Devices whose communication-error sensors report errors.
+    Sends nothing when every Device answers. Only the Administrator is ever notified (ADR 0006).
     See infrastructure/README.md in jbruns/ha-elevations.
   domain: automation
   source_url: https://github.com/jbruns/ha-elevations/blob/main/infrastructure/blueprints/automation/infrastructure_unresponsive_devices_digest.yaml

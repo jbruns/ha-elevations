@@ -1,6 +1,6 @@
 # Infrastructure
 
-Tells the Administrator when a system the home depends on fails or recovers, which batteries need replacing, and which Insteon Devices have stopped answering. The glossary is in [CONTEXT.md](./CONTEXT.md).
+Tells the Administrator when a system the home depends on fails or recovers, which batteries need replacing, and which Insteon Devices are Unresponsive Devices, to Remove or Restore. The glossary is in [CONTEXT.md](./CONTEXT.md).
 
 This folder holds:
 
@@ -77,7 +77,7 @@ For example:
 
 `blueprints/automation/infrastructure_unresponsive_devices_digest.yaml` sends the Administrator one **Unresponsive Devices Digest** a day, at 09:00 by default. Create a single automation from it.
 
-- **What it lists**: each Insteon Device whose communication-error sensor reports errors, by the Device's name, sorted, one per line, for example *Example Dimmer*. Deciding whether to Remove or Restore it is up to the Administrator (see [Insteon Network](../insteon-network/CONTEXT.md)).
+- **What it lists**: each [Unresponsive Device](../insteon-network/CONTEXT.md), an Insteon Device whose communication-error sensor reports errors, sorted, one per line, for example *Example Dimmer*. It uses the Device's name on the Controller, not a name given it in Home Assistant. Only the Administrator decides whether to Remove or Restore it.
 - **Which sensors**: every `isy994` sensor whose entity ID ends in `_device_communication_errors`, the ID the integration gives each Device's *Device Communication Errors* sensor. It reads `0` while the Device answers and `1` once the Controller can't reach it. A sensor that is `unknown`, because the Controller hasn't reported on it since Home Assistant started, or `unavailable`, because the Device is disabled on the Controller, is not listed. A renamed sensor whose ID no longer ends that way is not found.
 - **Exclusions**: the excluded entities are never listed.
 - **Nothing to report**: when the list is empty, nothing is sent.

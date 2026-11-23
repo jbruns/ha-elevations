@@ -8,7 +8,7 @@ The repo is organised by context (ADR 0007). Each context's folder holds its glo
 
 - [Front Door](./front-door/README.md): Notifications about activity at the front door.
 - [Climate](./climate/README.md): comfort, and when to open or close the windows.
-- [Infrastructure](./infrastructure/README.md): tells the Administrator when the home's systems fail or recover, which batteries need replacing, and which Insteon Devices have stopped answering.
+- [Infrastructure](./infrastructure/README.md): tells the Administrator when the home's systems fail or recover, which batteries need replacing, and which Insteon Devices are Unresponsive Devices, to Remove or Restore.
 - [Safety](./safety/README.md): warns the household about hazards in the home, and readings past safe limits.
 - [Lighting](./lighting/README.md): turns lights on and off with the sun, the hour, and each other.
 - [Family](./family/README.md): supports the children's routines, such as Screen Time and the school day.

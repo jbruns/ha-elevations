@@ -73,7 +73,8 @@ class Sensors:
     ) -> None:
         """Set any entity's state, for example a sensor or binary_sensor.
 
-        A device, by name, needs an integration."""
+        A device, by name, needs an integration and is set when the entity is added."""
+        assert device is None or integration is not None, "a device needs an integration"
         entity = self._entities.get(entity_id)
         if entity is None and integration is not None:
             entity = await self._add(entity_id, integration, device)

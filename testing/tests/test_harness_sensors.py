@@ -61,7 +61,10 @@ async def test_a_sensor_can_belong_to_a_named_device(
     hass: HomeAssistant, sensors: Sensors
 ) -> None:
     await sensors.set(
-        "sensor.example_dimmer_error", 1, integration="example_insteon", device="Example Dimmer"
+        "sensor.example_dimmer_error",
+        1,
+        integration="example_insteon",
+        device="Example Dimmer",
     )
 
     device_name = Template(

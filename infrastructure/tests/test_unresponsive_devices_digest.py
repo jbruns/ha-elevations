@@ -47,7 +47,7 @@ class Digest:
             ],
         )
 
-    async def errors(
+    async def error_sensor(
         self,
         entity_id: str,
         state: Any,
@@ -89,7 +89,7 @@ async def digest(
 
 
 async def test_a_device_reporting_errors_is_listed_by_its_name(digest: Digest) -> None:
-    await digest.errors(DIMMER, 1, "Example Dimmer")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer")
     await digest.start()
 
     await digest.run_at()
@@ -98,8 +98,8 @@ async def test_a_device_reporting_errors_is_listed_by_its_name(digest: Digest) -
 
 
 async def test_a_device_that_answers_is_not_listed(digest: Digest) -> None:
-    await digest.errors(DIMMER, 1, "Example Dimmer")
-    await digest.errors(KEYPAD, 0, "Example Keypad")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer")
+    await digest.error_sensor(KEYPAD, 0, "Example Keypad")
     await digest.start()
 
     await digest.run_at()
@@ -108,23 +108,23 @@ async def test_a_device_that_answers_is_not_listed(digest: Digest) -> None:
 
 
 async def test_the_list_is_sorted(digest: Digest) -> None:
-    await digest.errors(KEYPAD, 1, "Example Keypad")
-    await digest.errors(DIMMER, 1, "Example Dimmer")
-    await digest.errors(
-        "sensor.example_attic_relay_device_communication_errors", 1, "Attic Relay"
+    await digest.error_sensor(KEYPAD, 1, "Example Keypad")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer")
+    await digest.error_sensor(
+        "sensor.example_relay_device_communication_errors", 1, "Example Relay"
     )
     await digest.start()
 
     await digest.run_at()
 
-    assert digest.listed == ["Attic Relay", "Example Dimmer", "Example Keypad"]
+    assert digest.listed == ["Example Dimmer", "Example Keypad", "Example Relay"]
 
 
 @pytest.mark.parametrize("state", ["unknown", "unavailable"])
 async def test_a_sensor_without_a_count_is_not_listed(digest: Digest, state: str) -> None:
     """unknown: the Controller has not reported errors since Home Assistant
     started. unavailable: the Device is disabled on the Controller."""
-    await digest.errors(DIMMER, state, "Example Dimmer")
+    await digest.error_sensor(DIMMER, state, "Example Dimmer")
     await digest.start()
 
     await digest.run_at()
@@ -148,7 +148,7 @@ async def test_other_isy994_sensors_are_not_listed(digest: Digest) -> None:
 
 
 async def test_another_integrations_error_sensor_is_not_listed(digest: Digest) -> None:
-    await digest.errors(DIMMER, 1, "Example Dimmer", integration="example_zwave")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer", integration="example_zwave")
     await digest.start()
 
     await digest.run_at()
@@ -160,8 +160,8 @@ async def test_another_integrations_error_sensor_is_not_listed(digest: Digest) -
 
 
 async def test_nothing_is_sent_when_every_device_answers(digest: Digest) -> None:
-    await digest.errors(DIMMER, 0, "Example Dimmer")
-    await digest.errors(KEYPAD, 0, "Example Keypad")
+    await digest.error_sensor(DIMMER, 0, "Example Dimmer")
+    await digest.error_sensor(KEYPAD, 0, "Example Keypad")
     await digest.start()
 
     await digest.run_at()
@@ -173,7 +173,7 @@ async def test_nothing_is_sent_when_every_device_answers(digest: Digest) -> None
 
 
 async def test_the_digest_is_sent_at_nine_by_default(digest: Digest) -> None:
-    await digest.errors(DIMMER, 1, "Example Dimmer")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer")
     await digest.start()
 
     await digest.run_at(NINE - timedelta(minutes=1))
@@ -184,7 +184,7 @@ async def test_the_digest_is_sent_at_nine_by_default(digest: Digest) -> None:
 
 
 async def test_the_time_of_day_is_an_input(digest: Digest) -> None:
-    await digest.errors(DIMMER, 1, "Example Dimmer")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer")
     await digest.start(time="18:30:00")
 
     await digest.run_at(NINE)
@@ -198,8 +198,8 @@ async def test_the_time_of_day_is_an_input(digest: Digest) -> None:
 
 
 async def test_an_excluded_device_is_not_listed(digest: Digest) -> None:
-    await digest.errors(DIMMER, 1, "Example Dimmer")
-    await digest.errors(KEYPAD, 1, "Example Keypad")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer")
+    await digest.error_sensor(KEYPAD, 1, "Example Keypad")
     await digest.start(excluded_entities=[KEYPAD])
 
     await digest.run_at()
@@ -222,7 +222,7 @@ async def test_only_the_administrator_is_notified(
         if event.data["domain"] == "notify"
         else None,
     )
-    await digest.errors(DIMMER, 1, "Example Dimmer")
+    await digest.error_sensor(DIMMER, 1, "Example Dimmer")
     await digest.start()
 
     await digest.run_at()
