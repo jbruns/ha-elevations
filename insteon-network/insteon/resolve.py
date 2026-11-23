@@ -88,4 +88,4 @@ def _from_entity(entity_id: str, network: Network, registry: HaRegistry | None) 
 
 def _device_at(text: str, network: Network) -> Device | None:
     button = ButtonAddress.try_parse(text)
-    return network.device(button.device) if button else None
+    return network.device_of(button) if button else None

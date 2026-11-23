@@ -71,6 +71,10 @@ class Network:
     def device(self, address: InsteonAddress) -> Device | None:
         return next((device for device in self.devices if device.address == address), None)
 
+    def device_of(self, button: ButtonAddress) -> Device | None:
+        """The Device a Button address belongs to."""
+        return self.device(button.device)
+
     def button(self, address: ButtonAddress) -> Button | None:
         device = self.device(address.device)
         if device is None:

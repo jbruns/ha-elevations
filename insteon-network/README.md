@@ -62,7 +62,7 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 
 | Module | Does |
 | --- | --- |
-| `insteon/address.py` | Insteon Addresses and IoX node addresses, in every format |
+| `insteon/address.py` | Insteon Addresses and Button addresses, in every format |
 | `insteon/network.py` | Devices, Buttons, Scenes, Links and the Modem, with no wire formats |
 | `insteon/iox.py` | All of IoX: REST, the SOAP envelope, the event stream, Link-table reads (ADR 0013) |
 | `insteon/ha.py` | Home Assistant's WebSocket API |

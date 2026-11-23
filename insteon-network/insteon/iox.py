@@ -379,10 +379,11 @@ def _parse_event(text: str) -> Event | None:
         return None
     if root.tag != "Event":
         return None
+    info = root.find("eventInfo")
     return Event(
         control=root.findtext("control", ""),
         action=root.findtext("action", ""),
-        info=root.find("eventInfo") if root.find("eventInfo") is not None else ET.Element("eventInfo"),
+        info=info if info is not None else ET.Element("eventInfo"),
     )
 
 

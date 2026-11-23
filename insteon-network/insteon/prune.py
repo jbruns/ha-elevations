@@ -31,6 +31,11 @@ class StaleHaDevice:
     """The isy994 config entries to detach it from."""
     entity_ids: tuple[str, ...]
 
+    @property
+    def removable(self) -> bool:
+        """No entity uses it, and it is in an isy994 config entry to detach it from."""
+        return not self.entity_ids and bool(self.config_entries)
+
 
 @dataclass
 class PruneResult:
@@ -43,11 +48,11 @@ class PruneResult:
     def held(self) -> list[StaleHaDevice]:
         """Stale HA Devices prune will not remove: entities still use them, or they
         are in no isy994 config entry to detach them from."""
-        return [device for device in self.stale if device.entity_ids or not device.config_entries]
+        return [device for device in self.stale if not device.removable]
 
     @property
     def removable(self) -> list[StaleHaDevice]:
-        return [device for device in self.stale if not device.entity_ids and device.config_entries]
+        return [device for device in self.stale if device.removable]
 
 
 def find_stale(network: Network, registry: HaRegistry) -> list[StaleHaDevice]:
@@ -83,7 +88,7 @@ def _staleness(identifier: str, network: Network) -> str | None:
         return None
     button = ButtonAddress.try_parse(suffix)
     if button is not None:
-        if network.device(button.device) is not None:
+        if network.device_of(button) is not None:
             return None
         return f"the Controller has no Device at {button.device}"
     return f"the Controller has no node {suffix!r}"
