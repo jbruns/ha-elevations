@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from insteon.address import NodeAddress
-from insteon.ha import DOMAIN, HaClient, HaRegistry
+from insteon.address import ButtonAddress
+from insteon.ha import HaClient, HaRegistry, controller_suffix
 from insteon.iox import IoxClient
 from insteon.network import Network
 from insteon.rails import HaRegistryBackup, Rails
@@ -41,7 +41,8 @@ class PruneResult:
 
     @property
     def held(self) -> list[StaleHaDevice]:
-        """Stale HA Devices prune will not remove, because entities still use them."""
+        """Stale HA Devices prune will not remove: entities still use them, or they
+        are in no isy994 config entry to detach them from."""
         return [device for device in self.stale if device.entity_ids or not device.config_entries]
 
     @property
@@ -53,7 +54,7 @@ def find_stale(network: Network, registry: HaRegistry) -> list[StaleHaDevice]:
     """Every isy994 device none of whose identifiers names something the Controller has."""
     stale = []
     for device in registry.isy994_devices():
-        identifiers = [value for domain, value in device.get("identifiers", []) if domain == DOMAIN]
+        identifiers = registry.isy994_identifiers(device)
         verdicts = [_staleness(identifier, network) for identifier in identifiers]
         if any(verdict is None for verdict in verdicts):
             continue
@@ -63,9 +64,7 @@ def find_stale(network: Network, registry: HaRegistry) -> list[StaleHaDevice]:
                 name=device.get("name_by_user") or device.get("name") or "",
                 identifier=identifiers[0],
                 reason="; ".join(verdict for verdict in verdicts if verdict),
-                config_entries=tuple(
-                    entry for entry in device.get("config_entries", []) if entry in registry.isy994_entries
-                ),
+                config_entries=registry.isy994_entries_of(device),
                 entity_ids=tuple(entity["entity_id"] for entity in registry.entities_of(device["id"])),
             )
         )
@@ -74,21 +73,20 @@ def find_stale(network: Network, registry: HaRegistry) -> list[StaleHaDevice]:
 
 def _staleness(identifier: str, network: Network) -> str | None:
     """Why the identifier is stale, or None when the Controller has what it names."""
-    uuid = network.uuid
-    if identifier == uuid:
+    if identifier == network.uuid:
         return None
-    if not identifier.startswith(f"{uuid}_"):
+    suffix = controller_suffix(identifier, network.uuid)
+    if suffix is None:
         other = identifier.split("_", 1)[0]
         return f"from another Controller ({other})"
-    rest = identifier[len(uuid) + 1 :]
-    if rest in _SERVICE_DEVICES or rest in network.node_addresses:
+    if suffix in _SERVICE_DEVICES or suffix in network.node_addresses:
         return None
-    node = NodeAddress.try_parse(rest)
-    if node is not None:
-        if network.device(node.device) is not None:
+    button = ButtonAddress.try_parse(suffix)
+    if button is not None:
+        if network.device(button.device) is not None:
             return None
-        return f"the Controller has no Device at {node.device}"
-    return f"the Controller has no node {rest!r}"
+        return f"the Controller has no Device at {button.device}"
+    return f"the Controller has no node {suffix!r}"
 
 
 async def prune(iox: IoxClient, ha: HaClient, rails: Rails) -> PruneResult:
@@ -123,7 +121,11 @@ def render(result: PruneResult, *, applying: bool) -> str:
         elif not device.config_entries:
             lines.append("    held: not in an isy994 config entry; remove it by hand")
     if not applying:
-        lines.append(f"Dry run: nothing removed. Pass --apply to remove the {len(removable)} removable devices.")
+        lines.append(
+            f"Dry run: nothing removed. Pass --apply to remove the {len(removable)} removable devices."
+            if removable
+            else "Nothing to remove."
+        )
     else:
         lines.append(f"Removed {len(result.removed)} Stale HA Devices.")
         if result.backup is not None:

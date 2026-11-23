@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import re
 
-from insteon.address import InsteonAddress, NodeAddress
-from insteon.ha import HaRegistry
+from insteon.address import ButtonAddress, InsteonAddress
+from insteon.ha import DOMAIN, HaRegistry, controller_suffix
 from insteon.network import Device, Network
 
 _ENTITY_ID = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
@@ -41,8 +41,8 @@ def resolve_device(text: str, network: Network, registry: HaRegistry | None) -> 
 
 
 def _address(text: str) -> InsteonAddress | None:
-    node = NodeAddress.try_parse(text)
-    return node.device if node else InsteonAddress.try_parse(text)
+    button = ButtonAddress.try_parse(text)
+    return button.device if button else InsteonAddress.try_parse(text)
 
 
 def _from_name(name: str, network: Network) -> Device:
@@ -63,33 +63,29 @@ def _from_name(name: str, network: Network) -> Device:
 def _from_entity(entity_id: str, network: Network, registry: HaRegistry | None) -> Device:
     if registry is None:
         raise ResolveError(f"{entity_id} is an entity ID; resolving it needs Home Assistant")
-    entity = next(
-        (e for e in registry.entities if e.get("entity_id") == entity_id and e.get("platform") == "isy994"),
-        None,
-    )
+    entity = registry.isy994_entity(entity_id)
     if entity is None:
-        raise ResolveError(f"{entity_id} is not an entity of the Controller integration (isy994)")
+        raise ResolveError(f"{entity_id} is not an entity of the Controller integration ({DOMAIN})")
 
-    # The unique_id is `<uuid>_<node address>[_<suffix>]`; node addresses hold
-    # spaces, never underscores.
-    prefix = f"{network.uuid}_"
-    unique_id = str(entity.get("unique_id", ""))
-    if unique_id.startswith(prefix):
-        rest = unique_id[len(prefix) :].split("_", 1)[0]
-        node = NodeAddress.try_parse(rest)
-        if node is not None and (device := network.device(node.device)) is not None:
+    # The unique_id's suffix is a Button address, perhaps with its own `_OL`-style
+    # suffix (Button addresses hold spaces, never underscores), or a Scene address.
+    suffix = controller_suffix(str(entity.get("unique_id", "")), network.uuid)
+    if suffix is not None:
+        address = suffix.split("_", 1)[0]
+        if (device := _device_at(address, network)) is not None:
             return device
-        scene = next((scene for scene in network.scenes if scene.address == rest), None)
+        scene = next((scene for scene in network.scenes if scene.address == address), None)
         if scene is not None:
             raise ResolveError(f"{entity_id} is the Scene {scene.name!r}, not a Device")
 
-    device_id = entity.get("device_id")
-    for ha_device in registry.devices:
-        if ha_device.get("id") != device_id:
-            continue
-        for domain, identifier in ha_device.get("identifiers", []):
-            if domain == "isy994" and identifier.startswith(prefix):
-                node = NodeAddress.try_parse(identifier[len(prefix) :])
-                if node is not None and (device := network.device(node.device)) is not None:
-                    return device
+    ha_device = registry.device(entity.get("device_id"))
+    for identifier in registry.isy994_identifiers(ha_device) if ha_device else []:
+        suffix = controller_suffix(identifier, network.uuid)
+        if suffix is not None and (device := _device_at(suffix, network)) is not None:
+            return device
     raise ResolveError(f"{entity_id} matches no Device the Controller has")
+
+
+def _device_at(text: str, network: Network) -> Device | None:
+    button = ButtonAddress.try_parse(text)
+    return network.device(button.device) if button else None

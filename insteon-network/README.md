@@ -46,7 +46,7 @@ Reading the Modem's Link table takes about half a second per record, so a few mi
 
 Finds Stale HA Devices: isy994 devices in Home Assistant whose identifier (`<uuid>_<address>`) names nothing the Controller has. Those include devices from another Controller (a different uuid). The hub and the Variables and Networking devices of the current Controller are kept. isy994's own removal check accepts any device, live ones too, so the tool decides from `/rest/nodes` what is stale and never relies on that check.
 
-A Stale HA Device that still has entities is held back. Reload the isy994 integration, which removes stale entities, then prune again. With `--apply`, prune removes each Stale HA Device with `config/device_registry/remove_config_entry`.
+A Stale HA Device that still has entities is held back, following the Reconcile order in [research/pyisy-and-ha-isy994.md](./research/pyisy-and-ha-isy994.md) §3: reload the isy994 integration, which removes stale entities, then prune again. Removing a device that still has entities would delete them, and any References to them would break silently. With `--apply`, prune removes each Stale HA Device with `config/device_registry/remove_config_entry`.
 
 ## Rails
 
@@ -56,7 +56,7 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 - **Lock**: `<private>/insteon.lock` (an `flock`). A second command fails at once and names the holder.
 - **Backups** go to `<private>/insteon-backups/<time>-<command>/` before any change. Here is what's real today:
   - Home Assistant: the device registry, entity registry and isy994 config entries, as JSON. This is a record to re-create from by hand, not a Home Assistant backup.
-  - IoX: `/rest/nodes` and `/rest/config`. The full backup over SSH (`/var/isy/FILES/CONF/`) isn't built yet. It must exist before any command that changes IoX ships.
+  - IoX: not built yet. No command changes IoX so far. The first one that does must add the full backup over SSH (`/var/isy/FILES/CONF/`) as a `Backup`.
 
 ## Code
 

@@ -10,10 +10,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from insteon.address import NodeAddress
+from insteon.address import ButtonAddress
 from insteon.ha import HaRegistry
 from insteon.iox import IoxClient
-from insteon.network import Device, LinkRecord, Modem, Network, Scene
+from insteon.network import Device, Link, Modem, Network, Scene
 from insteon.rails import Rails
 from insteon.resolve import resolve_device
 
@@ -25,8 +25,8 @@ WARN_AT = 0.8
 @dataclass(frozen=True)
 class Inventory:
     network: Network
-    modem: Modem | None
-    modem_links: Sequence[LinkRecord] | None
+    modem: Modem
+    modem_links: Sequence[Link] | None
     """None when the Link table was not read."""
     capacity: int
     devices: Sequence[Device] | None = None
@@ -42,10 +42,6 @@ class Inventory:
             return self.network.scenes
         seen = {scene.address for device in self.devices for scene in self.network.scenes_of(device)}
         return [scene for scene in self.network.scenes if scene.address in seen]
-
-    @property
-    def links_in_use(self) -> int | None:
-        return None if self.modem_links is None else sum(link.in_use for link in self.modem_links)
 
 
 async def inventory(
@@ -81,43 +77,42 @@ def render(report: Inventory) -> str:
             notes.append("(disabled)")
         if device.comms_error:
             notes.append("! IoX reports a communication error")
-        lines.append("  " + "  ".join([str(device.address), device.name, device.kind, *notes]))
+        lines.append("  " + "  ".join([str(device.address), device.name, device.model, *notes]))
         lines.extend(f"    {button.address}  {button.name}" for button in device.buttons)
     sections.append("\n".join(lines))
 
     lines = ["Scenes"]
     for scene in scenes:
         lines.append(f"  {scene.name} ({scene.address})")
-        members = [("Controller", node) for node in scene.controllers] + [
-            ("Responder ", node) for node in scene.responders
+        members = [("Controller", button) for button in scene.controllers] + [
+            ("Responder ", button) for button in scene.responders
         ]
-        lines.extend(f"    {role}  {node}  {_button_name(network, node)}" for role, node in members)
+        lines.extend(f"    {role}  {button}  {_button_name(network, button)}" for role, button in members)
         if not members:
             lines.append("    (no Buttons)")
         lines.append("")
     sections.append("\n".join(lines).rstrip())
 
-    if report.modem is not None:
-        modem = report.modem
-        lines = [f"Modem {modem.address}  {modem.firmware}  {modem.status}"]
-        in_use = report.links_in_use
-        if in_use is None or report.modem_links is None:
-            lines.append("  Links: not read")
-        else:
-            share = in_use / report.capacity
+    modem = report.modem
+    lines = [f"Modem {modem.address}  {modem.firmware}  {modem.status}"]
+    if report.modem_links is None:
+        lines.append("  Links: not read")
+    else:
+        in_use = sum(link.in_use for link in report.modem_links)
+        share = in_use / report.capacity
+        lines.append(
+            f"  Links: {in_use} in use of about {report.capacity} ({share:.0%}); "
+            f"{len(report.modem_links)} records read"
+        )
+        if share >= WARN_AT:
             lines.append(
-                f"  Links: {in_use} in use of about {report.capacity} ({share:.0%}); "
-                f"{len(report.modem_links)} records read"
+                f"  WARNING: the Modem holds {in_use} Links, {share:.0%} of its capacity of about "
+                f"{report.capacity}. Status reports start failing near capacity; Restore the Modem "
+                "to compact its table, or remove unused Scenes."
             )
-            if share >= WARN_AT:
-                lines.append(
-                    f"  WARNING: the Modem holds {in_use} Links, {share:.0%} of its capacity of about "
-                    f"{report.capacity}. Status reports start failing near capacity; Restore the Modem "
-                    "to compact its table, or remove unused Scenes."
-                )
-        sections.append("\n".join(lines))
+    sections.append("\n".join(lines))
 
-    if report.devices is None and network.foreign:
+    if network.foreign:
         lines = ["Misconfiguration: nodes that are not Insteon belong to Home Assistant's own integrations (ADR 0012)"]
         lines.extend(f"  {node.address}  {node.name}  {node.family}" for node in network.foreign)
         sections.append("\n".join(lines))
@@ -125,6 +120,6 @@ def render(report: Inventory) -> str:
     return "\n\n".join(sections) + "\n"
 
 
-def _button_name(network: Network, node: NodeAddress) -> str:
-    button = network.button(node)
+def _button_name(network: Network, address: ButtonAddress) -> str:
+    button = network.button(address)
     return button.name if button else "(not on the Controller)"

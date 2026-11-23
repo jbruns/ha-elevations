@@ -9,7 +9,7 @@ from insteon.network import Network
 from insteon.resolve import ResolveError, resolve_device
 
 NETWORK = parse_nodes((FIXTURES / "nodes.xml").read_text(), UUID)
-REGISTRY = HaRegistry(devices=ha_devices(), entities=ha_entities(), isy994_entries=frozenset({"isy-entry"}))
+REGISTRY = HaRegistry(devices=ha_devices(), entities=ha_entities(), config_entries=[{"entry_id": "isy-entry", "domain": "isy994"}])
 
 
 def name_of(text: str, network: Network = NETWORK, registry: HaRegistry | None = REGISTRY) -> str:

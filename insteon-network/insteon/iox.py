@@ -23,8 +23,8 @@ from xml.sax.saxutils import escape
 
 import aiohttp
 
-from insteon.address import InsteonAddress, NodeAddress
-from insteon.network import Button, Device, ForeignNode, LinkRecord, Modem, Network, Scene
+from insteon.address import InsteonAddress, ButtonAddress
+from insteon.network import Button, Device, ForeignNode, Link, Modem, Network, Scene
 
 SERVICE = "urn:udi-com:service:X_Insteon_Lighting_Service:1"
 SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
@@ -65,7 +65,6 @@ class Event:
 
     control: str
     action: str
-    node: str
     info: ET.Element
 
 
@@ -101,10 +100,12 @@ class IoxClient:
         token = base64.b64encode(f"{user}:{password}".encode()).decode()
         self._auth = {"Authorization": f"Basic {token}"}
         self._timeout = aiohttp.ClientTimeout(total=timeout)
-        self._ssl = _ssl_setting(self._base, cert_sha256)
+        self._cert_sha256 = cert_sha256
+        self._ssl: bool | aiohttp.Fingerprint = True
         self._session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self) -> IoxClient:
+        self._ssl = _ssl_setting(self._base, self._cert_sha256)
         self._session = aiohttp.ClientSession(headers=self._auth)
         return self
 
@@ -230,7 +231,7 @@ class IoxClient:
             raise IoxError(f"G_PLM_INFO answered {text.strip()[:80]!r}, not a Modem address")
         return Modem(found, firmware.strip(), status.strip())
 
-    async def modem_links(self, modem: InsteonAddress, *, timeout: float = 900) -> list[LinkRecord]:
+    async def modem_links(self, modem: InsteonAddress, *, timeout: float = 900) -> list[Link]:
         """Read the Modem's Link table (`DeviceSpecific G_PLM_ALL`).
 
         IoX streams one `_2` event per record, about two a second, between busy
@@ -238,7 +239,7 @@ class IoxClient:
         is done. The call needs the Modem's own address as `node`; with an empty
         `node` IoX streams nothing.
         """
-        records: list[LinkRecord] = []
+        records: list[Link] = []
         busy = ended = False
         async with self.events() as queue:
             call = asyncio.create_task(
@@ -269,7 +270,7 @@ class IoxClient:
                             continue
                         event = getter.result()
                         if event.control == "_2" and event.action == "1":
-                            records.append(_link_record(event.info))
+                            records.append(_link(event.info))
                         elif event.control == "_5" and event.action == "1":
                             busy = True
                         elif event.control == "_5" and event.action == "0" and busy:
@@ -289,7 +290,7 @@ def parse_nodes(text: str, uuid: str) -> Network:
     """Build the Network from a `/rest/nodes` response."""
     root = _xml(text, "/rest/nodes")
     folders = {folder.findtext("address", ""): folder.findtext("name", "") for folder in root.iter("folder")}
-    buttons: dict[InsteonAddress, list[tuple[ET.Element, NodeAddress]]] = {}
+    buttons: dict[InsteonAddress, list[tuple[ET.Element, ButtonAddress]]] = {}
     primaries: dict[InsteonAddress, ET.Element] = {}
     foreign: list[ForeignNode] = []
     addresses: set[str] = set()
@@ -299,29 +300,29 @@ def parse_nodes(text: str, uuid: str) -> Network:
         addresses.add(raw)
         family = node.find("family")
         family_id = family.text.strip() if family is not None and family.text else None
-        address = NodeAddress.try_parse(raw)
+        address = ButtonAddress.try_parse(raw)
         if family_id not in _INSTEON_FAMILIES or address is None:
             label = _FAMILY_NAMES.get(family_id or "", f"family {family_id}")
             foreign.append(ForeignNode(raw, node.findtext("name", ""), label))
             continue
-        primary = NodeAddress.try_parse(node.findtext("pnode", "")) or address
+        primary = ButtonAddress.try_parse(node.findtext("pnode", "")) or address
         buttons.setdefault(primary.device, []).append((node, address))
         if primary == address:
             primaries[address.device] = node
 
     devices = []
     for device_address, members in buttons.items():
-        head = primaries.get(device_address, members[0][0])
-        parent = head.find("parent")
-        flag = int(head.get("flag", "0"))
+        primary = primaries.get(device_address, members[0][0])
+        parent = primary.find("parent")
+        flag = int(primary.get("flag", "0"))
         devices.append(
             Device(
                 address=device_address,
-                name=head.findtext("name", ""),
-                kind=head.get("nodeDefId", ""),
-                device_type=head.findtext("type", ""),
+                name=primary.findtext("name", ""),
+                model=primary.get("nodeDefId", ""),
+                type_code=primary.findtext("type", ""),
                 folder=folders.get(parent.text or "") if parent is not None and parent.get("type") == "3" else None,
-                enabled=head.findtext("enabled", "true").strip() != "false",
+                enabled=primary.findtext("enabled", "true").strip() != "false",
                 comms_error=bool(flag & _FLAG_IN_ERROR),
                 buttons=tuple(
                     sorted(
@@ -336,13 +337,13 @@ def parse_nodes(text: str, uuid: str) -> Network:
     for group in root.iter("group"):
         if int(group.get("flag", "0")) & _FLAG_ROOT:
             continue
-        links = [(link.get("type"), NodeAddress.try_parse(link.text or "")) for link in group.iter("link")]
+        links = [(link.get("type"), ButtonAddress.try_parse(link.text or "")) for link in group.iter("link")]
         scenes.append(
             Scene(
                 address=group.findtext("address", "").strip(),
                 name=group.findtext("name", ""),
-                controllers=tuple(node for kind, node in links if kind == _CONTROLLER and node),
-                responders=tuple(node for kind, node in links if kind != _CONTROLLER and node),
+                controllers=tuple(button for link_type, button in links if link_type == _CONTROLLER and button),
+                responders=tuple(button for link_type, button in links if link_type != _CONTROLLER and button),
             )
         )
 
@@ -355,14 +356,14 @@ def parse_nodes(text: str, uuid: str) -> Network:
     )
 
 
-def _link_record(info: ET.Element) -> LinkRecord:
+def _link(info: ET.Element) -> Link:
     def number(tag: str) -> int:
         value = info.findtext(tag)
         if value is None:
-            raise IoxError(f"link record without <{tag}>")
+            raise IoxError(f"Link without <{tag}>")
         return int(value)
 
-    return LinkRecord(
+    return Link(
         index=number("ix"),
         flags=number("fl"),
         group=number("gr"),
@@ -381,7 +382,6 @@ def _parse_event(text: str) -> Event | None:
     return Event(
         control=root.findtext("control", ""),
         action=root.findtext("action", ""),
-        node=root.findtext("node", "").strip(),
         info=root.find("eventInfo") if root.find("eventInfo") is not None else ET.Element("eventInfo"),
     )
 

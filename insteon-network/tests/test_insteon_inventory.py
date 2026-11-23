@@ -6,9 +6,13 @@ from insteon_fakes import fake_iox, iox_url  # noqa: F401 (fixtures)
 
 from insteon.inventory import inventory, render
 from insteon.iox import IoxClient
-from insteon.network import Network
+from insteon.address import InsteonAddress
+from insteon.network import Modem, Network
 from insteon.inventory import Inventory
 from insteon.rails import LockHeld, Rails, lock
+
+
+MODEM_INFO = Modem(InsteonAddress.parse(MODEM), "v9B", "Connected")
 
 
 def rails(tmp_path: Path) -> Rails:
@@ -107,10 +111,11 @@ async def test_inventory_of_named_devices_shows_only_them_and_their_scenes(
     assert "Example Leak Sensor" not in text
     assert "Example Scene (12345)" in text
     assert "Example Empty Scene" not in text
+    assert "Example Z-Wave Lock" in text[text.index("Misconfiguration") :]
 
 
 def test_an_empty_network_renders() -> None:
-    text = render(Inventory(Network(uuid="00:00:00:00:00:00", devices=(), scenes=()), None, None, 900))
+    text = render(Inventory(Network(uuid="00:00:00:00:00:00", devices=(), scenes=()), MODEM_INFO, None, 900))
 
     assert "0 Devices, 0 Scenes" in text
 

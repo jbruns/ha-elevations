@@ -1,7 +1,7 @@
-"""Insteon Addresses, and the node addresses IoX gives a Device's Buttons.
+"""Insteon Addresses, and the addresses IoX gives a Device's Buttons.
 
 An Insteon Address is three bytes, the same in every format: `1A.2B.3C`,
-`1A 2B 3C`, `1a2b3c`. IoX writes a node address as the three bytes plus a
+`1A 2B 3C`, `1a2b3c`. IoX writes a Button's address as the three bytes plus a
 Button number, space separated, and drops leading zeros within a byte
 (`AA B C 1`), so every byte is parsed as hex and compared numerically.
 """
@@ -66,14 +66,15 @@ class InsteonAddress:
 
 
 @dataclass(frozen=True, order=True)
-class NodeAddress:
-    """An IoX node address: a Device's Insteon Address and one of its Buttons."""
+class ButtonAddress:
+    """A Button's address: its Device's Insteon Address and the Button number,
+    which IoX writes as its node address (`AA B C 1`)."""
 
     device: InsteonAddress
     button: int
 
     @classmethod
-    def try_parse(cls, text: str) -> NodeAddress | None:
+    def try_parse(cls, text: str) -> ButtonAddress | None:
         parts = _split(text)
         if len(parts) != 4 or not _BYTE.fullmatch(parts[3]):
             return None
@@ -81,10 +82,10 @@ class NodeAddress:
         return cls(InsteonAddress(*found), int(parts[3], 16)) if found else None
 
     @classmethod
-    def parse(cls, text: str) -> NodeAddress:
+    def parse(cls, text: str) -> ButtonAddress:
         found = cls.try_parse(text)
         if found is None:
-            raise ValueError(f"not an IoX node address: {text!r}")
+            raise ValueError(f"not a Button address: {text!r}")
         return found
 
     @property

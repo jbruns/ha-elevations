@@ -10,9 +10,8 @@ What a backup holds today:
 - Home Assistant: the device registry, entity registry and isy994 config
   entries as JSON. Enough to see what a removal took away and re-create it by
   hand; it is not a Home Assistant backup and cannot be restored automatically.
-- IoX: `/rest/nodes` and `/rest/config` as returned. The full IoX backup over
-  SSH (`/var/isy/FILES/CONF/`) is not built yet; a command that changes IoX
-  must not ship until it is.
+- IoX: not built yet. No command changes IoX so far; the first one that does
+  must add the full IoX backup over SSH (`/var/isy/FILES/CONF/`) as a Backup.
 """
 
 from __future__ import annotations
@@ -27,8 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from insteon.ha import DOMAIN, HaClient
-from insteon.iox import IoxClient
+from insteon.ha import HaClient
 
 
 class LockHeld(RuntimeError):
@@ -73,24 +71,14 @@ class HaRegistryBackup:
 
     async def take(self, folder: Path) -> None:
         folder.mkdir(parents=True, exist_ok=True)
+        registry = await self.ha.registry()
         snapshot = {
-            "devices": await self.ha.call("config/device_registry/list"),
-            "entities": await self.ha.call("config/entity_registry/list"),
-            "config_entries": await self.ha.call("config_entries/get", domain=DOMAIN),
+            "devices": registry.devices,
+            "entities": registry.entities,
+            "config-entries": registry.config_entries,
         }
         for key, value in snapshot.items():
-            (folder / f"ha-{key.replace('_', '-')}.json").write_text(json.dumps(value, indent=2) + "\n")
-
-
-@dataclass
-class IoxRestBackup:
-    iox: IoxClient
-    name: str = "IoX nodes and config (REST)"
-
-    async def take(self, folder: Path) -> None:
-        folder.mkdir(parents=True, exist_ok=True)
-        for path in ("nodes", "config"):
-            (folder / f"iox-{path}.xml").write_text(await self.iox.get(path))
+            (folder / f"ha-{key}.json").write_text(json.dumps(value, indent=2) + "\n")
 
 
 @dataclass(frozen=True)

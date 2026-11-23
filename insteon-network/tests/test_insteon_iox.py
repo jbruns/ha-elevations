@@ -2,7 +2,7 @@ import pytest
 from insteon_fakes import FakeIox, MODEM, PASSWORD, USER, UUID, plm_record
 from insteon_fakes import fake_iox, iox_url  # noqa: F401 (fixtures)
 
-from insteon.address import InsteonAddress, NodeAddress
+from insteon.address import InsteonAddress, ButtonAddress
 from insteon.iox import IoxClient, IoxError, soap_envelope
 
 
@@ -17,7 +17,7 @@ async def test_the_network_lists_each_device_with_its_buttons(iox_url: str) -> N
     keypad = network.device(InsteonAddress.parse("11.22.33"))
     assert keypad is not None
     assert keypad.name == "Example Keypad"
-    assert keypad.kind == "KeypadDimmer_ADV"
+    assert keypad.model == "KeypadDimmer_ADV"
     assert keypad.folder == "Example Hall"
     assert [(str(b.address), b.name) for b in keypad.buttons] == [
         ("11.22.33 1", "Example Keypad"),
@@ -51,9 +51,9 @@ async def test_scenes_list_their_controller_and_responder_buttons(iox_url: str) 
 
     scenes = {scene.name: scene for scene in network.scenes}
     assert set(scenes) == {"Example Scene", "Example Three-Way", "Example Empty Scene"}
-    assert scenes["Example Scene"].controllers == (NodeAddress.parse("11 22 33 3"),)
-    assert scenes["Example Scene"].responders == (NodeAddress.parse("AA BB CC 1"), NodeAddress.parse("A B C 1"))
-    assert scenes["Example Three-Way"].controllers == (NodeAddress.parse("AA BB CC 1"), NodeAddress.parse("11 22 33 1"))
+    assert scenes["Example Scene"].controllers == (ButtonAddress.parse("11 22 33 3"),)
+    assert scenes["Example Scene"].responders == (ButtonAddress.parse("AA BB CC 1"), ButtonAddress.parse("A B C 1"))
+    assert scenes["Example Three-Way"].controllers == (ButtonAddress.parse("AA BB CC 1"), ButtonAddress.parse("11 22 33 1"))
     assert scenes["Example Empty Scene"].controllers == scenes["Example Empty Scene"].responders == ()
 
 
@@ -91,10 +91,10 @@ async def test_the_modem_link_table_is_read_from_the_event_stream(iox_url: str, 
     async with client(iox_url) as iox:
         links = await iox.modem_links(InsteonAddress.parse(MODEM))
 
-    assert [(link.index, str(link.address), link.in_use, link.is_controller) for link in links] == [
-        (0, "11.22.33", True, True),
-        (1, "AA.BB.CC", True, False),
-        (2, "0A.0B.0C", False, False),
+    assert [(link.index, link.flags, link.group, str(link.address), link.in_use) for link in links] == [
+        (0, 0xE2, 20, "11.22.33", True),
+        (1, 0xA2, 1, "AA.BB.CC", True),
+        (2, 0x22, 1, "0A.0B.0C", False),
     ]
     request = fake_iox.soap_calls[-1]
     assert request["params"]["command"] == "G_PLM_ALL"

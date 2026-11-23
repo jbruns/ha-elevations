@@ -1,6 +1,6 @@
 import pytest
 
-from insteon.address import InsteonAddress, NodeAddress
+from insteon.address import InsteonAddress, ButtonAddress
 
 
 @pytest.mark.parametrize(
@@ -27,20 +27,20 @@ def test_anything_else_is_not_an_insteon_address(text: str) -> None:
 
 
 def test_a_node_address_names_the_device_and_the_button() -> None:
-    node = NodeAddress.parse("AA B C 1")
+    node = ButtonAddress.parse("AA B C 1")
 
-    assert node == NodeAddress(InsteonAddress(0xAA, 0x0B, 0x0C), 1)
+    assert node == ButtonAddress(InsteonAddress(0xAA, 0x0B, 0x0C), 1)
     assert node.iox == "AA B C 1"
 
 
 def test_a_node_address_reads_a_keypad_button_number() -> None:
-    assert NodeAddress.parse("11 22 33 8").button == 8
+    assert ButtonAddress.parse("11 22 33 8").button == 8
 
 
 def test_an_address_without_a_button_is_not_a_node_address() -> None:
-    assert NodeAddress.try_parse("11.22.33") is None
+    assert ButtonAddress.try_parse("11.22.33") is None
 
 
 def test_a_node_address_that_is_not_insteon_is_rejected() -> None:
-    assert NodeAddress.try_parse("ZY003_1") is None
-    assert NodeAddress.try_parse("n001_example") is None
+    assert ButtonAddress.try_parse("ZY003_1") is None
+    assert ButtonAddress.try_parse("n001_example") is None

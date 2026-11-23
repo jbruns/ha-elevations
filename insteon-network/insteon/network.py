@@ -7,16 +7,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from insteon.address import InsteonAddress, NodeAddress
+from insteon.address import InsteonAddress, ButtonAddress
 
 
 @dataclass(frozen=True)
 class Button:
     """One part of a Device that can join a Scene."""
 
-    address: NodeAddress
+    address: ButtonAddress
     name: str
-    kind: str
+    model: str
+    """IoX's node definition, such as `KeypadButton_ADV`."""
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,10 @@ class Device:
 
     address: InsteonAddress
     name: str
-    kind: str
-    device_type: str
+    model: str
+    """IoX's node definition, such as `DimmerLampSwitch_ADV`."""
+    type_code: str
+    """IoX's Insteon category, subcategory and firmware, such as `1.32.65.0`."""
     folder: str | None
     enabled: bool
     comms_error: bool
@@ -41,8 +44,8 @@ class Scene:
 
     address: str
     name: str
-    controllers: tuple[NodeAddress, ...]
-    responders: tuple[NodeAddress, ...]
+    controllers: tuple[ButtonAddress, ...]
+    responders: tuple[ButtonAddress, ...]
 
 
 @dataclass(frozen=True)
@@ -68,7 +71,7 @@ class Network:
     def device(self, address: InsteonAddress) -> Device | None:
         return next((device for device in self.devices if device.address == address), None)
 
-    def button(self, address: NodeAddress) -> Button | None:
+    def button(self, address: ButtonAddress) -> Button | None:
         device = self.device(address.device)
         if device is None:
             return None
@@ -84,8 +87,8 @@ class Network:
 
 
 @dataclass(frozen=True)
-class LinkRecord:
-    """One record of a Link table, as IoX reports it."""
+class Link:
+    """One record in a Device's or the Modem's link table, as IoX reports it."""
 
     index: int
     flags: int
@@ -96,10 +99,6 @@ class LinkRecord:
     @property
     def in_use(self) -> bool:
         return bool(self.flags & 0x80)
-
-    @property
-    def is_controller(self) -> bool:
-        return bool(self.flags & 0x40)
 
 
 @dataclass(frozen=True)
