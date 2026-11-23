@@ -1,0 +1,73 @@
+blueprint:
+  name: Unresponsive Devices Digest
+  description: >-
+    Once a day, sends the Administrator a list of the Unresponsive Devices:
+    the Insteon Devices whose communication-error sensors report errors.
+    Sends nothing when every Device answers. Only the Administrator is ever
+    notified (ADR 0006).
+    See infrastructure/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/infrastructure/blueprints/automation/infrastructure_unresponsive_devices_digest.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    time:
+      name: Time of day
+      description: When the Unresponsive Devices Digest is sent.
+      default: "09:00:00"
+      selector:
+        time:
+    excluded_entities:
+      name: Excluded entities
+      description: >-
+        Communication-error sensors to leave out, such as one for a Device you
+        already know is gone and will Remove.
+      default: []
+      selector:
+        entity:
+          integration: isy994
+          domain: sensor
+          multiple: true
+    administrator:
+      name: Administrator
+      description: >-
+        The Administrator's phone, the only one sent the Unresponsive Devices
+        Digest.
+      selector:
+        device:
+          filter:
+            integration: mobile_app
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: time
+    at: !input time
+
+variables:
+  administrator: !input administrator
+  notify: "notify.mobile_app_{{ device_attr(administrator, 'name') | slugify }}"
+  excluded_entities: !input excluded_entities
+  # Each Device reporting errors, by its name.
+  lines: >-
+    {%- set ns = namespace(lines=[]) -%}
+    {%- for entity_id in integration_entities('isy994')
+                         | select('match', 'sensor[.].*_device_communication_errors$')
+                         | reject('in', excluded_entities) -%}
+      {%- set errors = states(entity_id) -%}
+      {%- if is_number(errors) and errors | float > 0 -%}
+        {%- set ns.lines = ns.lines + [device_attr(device_id(entity_id), 'name')] -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {{ ns.lines | sort }}
+
+conditions:
+  - condition: template
+    value_template: "{{ lines | length > 0 }}"
+
+actions:
+  - action: "{{ notify }}"
+    data:
+      title: Unresponsive Devices Digest
+      message: "{{ lines | join('\n') }}"

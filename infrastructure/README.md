@@ -1,10 +1,10 @@
 # Infrastructure
 
-Tells the Administrator when a system the home depends on fails or recovers, and which batteries need replacing. The glossary is in [CONTEXT.md](./CONTEXT.md).
+Tells the Administrator when a system the home depends on fails or recovers, which batteries need replacing, and which Insteon Devices have become Unresponsive. The glossary is in [CONTEXT.md](./CONTEXT.md).
 
 This folder holds:
 
-- `blueprints/automation/`: the Failure Notifications and Battery Digest blueprints.
+- `blueprints/automation/`: the Failure Notifications, Battery Digest and Unresponsive Devices Digest blueprints.
 - `tests/`: runs the blueprints in a real Home Assistant core.
 
 Infrastructure Notifications go only to the Administrator, never to every Recipient (ADR 0006). Every entity and every number is an input (ADR 0004).
@@ -71,4 +71,28 @@ For example:
 
 - In Developer Tools → Template, paste `{{ states.sensor | selectattr('attributes.device_class', 'eq', 'battery') | map(attribute='name') | list }}` to see the battery sensors it can list.
 - Raise the low threshold above one battery's level and run the automation from its menu (Run actions). The Administrator gets **Battery Digest** listing it. Set the threshold back.
+- The automation's traces show each day's run. A run stopped at the condition had nothing to report.
+
+## Unresponsive Devices Digest
+
+`blueprints/automation/infrastructure_unresponsive_devices_digest.yaml` sends the Administrator one **Unresponsive Devices Digest** a day, at 09:00 by default. Create a single automation from it.
+
+- **What it lists**: each [Unresponsive Device](../insteon-network/CONTEXT.md), an Insteon Device whose communication-error sensor reports errors, sorted, one per line, for example *Example Dimmer*. It uses the Device's name on the Controller, not a name given it in Home Assistant. Only the Administrator decides whether to Remove or Restore it.
+- **Which sensors**: every `isy994` sensor whose entity ID ends in `_device_communication_errors`, the ID the integration gives each Device's *Device Communication Errors* sensor. It reads `0` while the Device answers and `1` once the Controller can't reach it. A sensor that is `unknown`, because the Controller hasn't reported on it since Home Assistant started, or `unavailable`, because the Device is disabled on the Controller, is not listed. A renamed sensor whose ID no longer ends that way is not found.
+- **Exclusions**: the excluded entities are never listed.
+- **Nothing to report**: when the list is empty, nothing is sent.
+
+### Set up
+
+1. Enable the communication-error sensors. Home Assistant creates one per Insteon Device but disables them. Go to Settings → Devices & Services → Entities, search for `device_communication_errors`, select them all, and choose **Enable selected**. Home Assistant reloads the integration about 30 seconds later.
+2. Check that the Administrator's phone has the Home Assistant Companion app, so it is a `mobile_app` device.
+3. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
+4. Create one automation from it. Set the Administrator, and change the time of day and excluded entities if the defaults don't suit.
+
+When a Device is added, enable its new communication-error sensor the same way.
+
+### Check it works
+
+- In Developer Tools → Template, paste `{{ integration_entities('isy994') | select('match', 'sensor[.].*_device_communication_errors$') | map('states') | list }}` to see the sensors it reads and their states.
+- Unplug a plug-in Device, or switch off a wired one at its breaker, and turn it on and off from Home Assistant until its sensor reads `1`. Run the automation from its menu (Run actions). The Administrator gets **Unresponsive Devices Digest** listing it. Restore power and query the Device (its *Query* button) so the sensor reads `0` again.
 - The automation's traces show each day's run. A run stopped at the condition had nothing to report.
