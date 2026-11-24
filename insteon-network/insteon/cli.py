@@ -11,10 +11,12 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from insteon import audit as audit_command
 from insteon import inventory as inventory_command
 from insteon import programs as programs_command
 from insteon import prune as prune_command
-from insteon.config import ENV_PRIVATE_DIR, ConfigError, Private
+from insteon import refs as refs_command
+from insteon.config import ENV_PRIVATE_DIR, REPO, ConfigError, Private
 from insteon.ha import HaClient, HaError
 from insteon.iox import IoxClient, IoxError, IoxFiles
 from insteon.rails import LockHeld, Rails
@@ -57,6 +59,24 @@ def _parser() -> argparse.ArgumentParser:
         "programs",
         help="export IoX programs and variables as text, flagging HA automations on the same Devices",
     )
+
+    audit = commands.add_parser("audit", help="Link Audit: differences, Stale Links, Unresponsive Devices (read-only)")
+    audit.add_argument(
+        "devices", nargs="*", metavar="DEVICE", help="only these (default: every Device but Battery and disabled ones)"
+    )
+    audit.add_argument(
+        "--timeout",
+        type=float,
+        default=audit_command.DEFAULT_TIMEOUT,
+        help="seconds to wait for one Device's Links before calling it Unresponsive (default: %(default)s)",
+    )
+    audit.add_argument("--no-modem-links", action="store_true", help="skip reading the Modem's Link table")
+
+    refs = commands.add_parser("refs", help="every Reference to a Device's entities, in HA and the repo (read-only)")
+    refs.add_argument("device", metavar="DEVICE", help="Insteon Address, IoX name or HA entity ID")
+    refs.add_argument(
+        "--repo", type=Path, default=REPO, help="the checkout whose *.local.yaml overlays to read (default: %(default)s)"
+    )
     return parser
 
 
@@ -70,7 +90,11 @@ async def run(argv: Sequence[str] | None = None) -> int:
             await _prune(args, private)
         elif args.command == "programs":
             await _programs(args, private)
-    except (ConfigError, IoxError, HaError, ResolveError, LockHeld) as error:
+        elif args.command == "audit":
+            await _audit(args, private)
+        elif args.command == "refs":
+            await _refs(args, private)
+    except (ConfigError, IoxError, HaError, ResolveError, LockHeld, refs_command.RepoError) as error:
         print(f"insteon: error: {error}", file=sys.stderr)
         return 1
     return 0
@@ -119,6 +143,40 @@ async def _programs(args: argparse.Namespace, private: Private) -> None:
     async with _iox(private) as iox, _ha(private, args) as ha:
         result = await programs_command.export(iox, files, ha)
     print(programs_command.render(result), end="")
+
+
+async def _audit(args: argparse.Namespace, private: Private) -> None:
+    async with _iox(private) as iox:
+        registry = None
+        if any(needs_home_assistant(name) for name in args.devices):
+            async with _ha(private, args) as ha:
+                registry = await ha.registry()
+        report = await audit_command.audit(
+            iox,
+            _rails(private, apply=False),
+            names=args.devices,
+            registry=registry,
+            read_modem_links=not args.no_modem_links,
+            timeout=args.timeout,
+            prompt=_ask,
+            progress=_progress,
+        )
+    print(audit_command.render(report), end="")
+
+
+def _progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
+def _ask(message: str) -> str:
+    print(message, end="", file=sys.stderr, flush=True)
+    return sys.stdin.readline()
+
+
+async def _refs(args: argparse.Namespace, private: Private) -> None:
+    async with _iox(private) as iox, _ha(private, args) as ha:
+        report = await refs_command.refs(iox, ha, args.device, repo=args.repo)
+    print(refs_command.render(report), end="")
 
 
 def main() -> int:

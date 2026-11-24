@@ -37,6 +37,25 @@ class Device:
     it is an Unresponsive Device: that takes a Link Audit."""
     buttons: tuple[Button, ...]
 
+    @property
+    def primary(self) -> ButtonAddress:
+        """The address IoX reads the Device's Links through: its first Button."""
+        return self.buttons[0].address if self.buttons else ButtonAddress(self.address, 1)
+
+    @property
+    def battery(self) -> bool:
+        """A Battery Device, judged from its Insteon category (`type_code`).
+
+        Category 16 (sensors and actuators) is battery powered, except the
+        Smoke Bridge (16.10), which plugs in. Category 0 (generalized
+        controllers: remotes) is battery powered. See research/iox-api.md §6.
+        """
+        category, _, rest = self.type_code.partition(".")
+        subcategory = rest.partition(".")[0]
+        if category == "16":
+            return subcategory != "10"
+        return category == "0"
+
 
 @dataclass(frozen=True)
 class Scene:
@@ -46,6 +65,8 @@ class Scene:
     name: str
     controllers: tuple[ButtonAddress, ...]
     responders: tuple[ButtonAddress, ...]
+    group: int | None = None
+    """The Insteon group the Modem controls the Scene with (IoX's `deviceGroup`)."""
 
 
 @dataclass(frozen=True)
@@ -84,6 +105,17 @@ class Network:
             return None
         return next((button for button in device.buttons if button.address == address), None)
 
+    def scenes_served_by(self, owner: InsteonAddress, link: Link, modem: InsteonAddress) -> tuple[Scene, ...]:
+        """The Scenes a Link in `owner`'s table serves: those its controller's Button drives.
+
+        When the Modem is the controller, `link.group` is the Scene's group.
+        """
+        controller = owner if link.controller else link.address
+        if controller == modem:
+            return tuple(scene for scene in self.scenes if scene.group == link.group)
+        button = ButtonAddress(controller, link.group)
+        return tuple(scene for scene in self.scenes if button in scene.controllers)
+
     def scenes_of(self, device: Device) -> tuple[Scene, ...]:
         """The Scenes any of the Device's Buttons is in."""
         return tuple(
@@ -105,7 +137,16 @@ class Link:
 
     @property
     def in_use(self) -> bool:
+        """Flag bit 0x80. A record without it is deleted, or ends the table."""
         return bool(self.flags & 0x80)
+
+    @property
+    def controller(self) -> bool:
+        """Flag bit 0x40: the table's owner controls `address` with `group`.
+
+        Without it, the owner responds to `address`'s `group`.
+        """
+        return bool(self.flags & 0x40)
 
 
 @dataclass(frozen=True)

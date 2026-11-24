@@ -56,6 +56,12 @@ _FLAG_IN_ERROR = 0x10
 # gives 32 for a Responder Button, but IoX 6.0.5 sends 0; any other type is a
 # Responder Button.
 _CONTROLLER = "16"
+# `_2` record actions: 1 a Modem record (G_PLM_ALL), 2 a record read from a
+# Device (G_DEV_ALL), 3 a record the Controller expects (G_ISY_ALL).
+_MODEM_RECORD, _DEVICE_RECORD, _EXPECTED_RECORD = "1", "2", "3"
+# Seconds to wait for one Device's Links. IoX itself gives up on a Device that
+# does not answer after about 22 s; old Devices answer slowly but steadily.
+DEVICE_READ_TIMEOUT = 120.0
 # Seconds to wait for events still in flight after a streaming call returns.
 _STREAM_GRACE = 5.0
 # IoX's config files, which only root may read (iox-api.md §5).
@@ -82,6 +88,15 @@ _FAMILY_NAMES = {
 
 class IoxError(RuntimeError):
     """IoX refused a call or answered with something the tool cannot read."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        """The HTTP status IoX answered with, if that was the failure."""
+
+
+class DeviceUnresponsive(IoxError):
+    """A Device did not answer a read of its Links: an Unresponsive Device."""
 
 
 @dataclass(frozen=True)
@@ -264,13 +279,62 @@ class IoxClient:
         is done. The call needs the Modem's own address as `node`; with an empty
         `node` IoX streams nothing.
         """
+        try:
+            return await self._read_links("G_PLM_ALL", modem.iox, _MODEM_RECORD, timeout=timeout)
+        except TimeoutError as error:
+            raise IoxError(f"the Modem Link table read took over {timeout:.0f} s") from error
+
+    async def expected_links(self, device: ButtonAddress, *, timeout: float = 60) -> list[Link]:
+        """The Links the Controller expects a Device to hold (`G_ISY_ALL`), from its cache.
+
+        `device` is the Device's primary Button address (`Device.primary`). A
+        record with flags 0 ends the table and is not returned.
+        """
+        try:
+            return await self._read_links("G_ISY_ALL", device.iox, _EXPECTED_RECORD, timeout=timeout)
+        except TimeoutError as error:
+            raise IoxError(f"the expected Links of {device.device} took over {timeout:.0f} s") from error
+
+    async def device_links(self, device: ButtonAddress, *, timeout: float = DEVICE_READ_TIMEOUT) -> list[Link]:
+        """Read the Links a Device holds (`G_DEV_ALL`), over the network.
+
+        `device` is the Device's primary Button address. A dimmer with 6 records takes
+        about 6 s; old Devices take much longer. When the Device does not
+        answer, IoX gives up after about 22 s with HTTP 501. Either that or
+        no end within `timeout` seconds raises DeviceUnresponsive; on a timeout
+        the read is stopped (`STOP`), so the Modem is free for the next one.
+        """
+        try:
+            return await self._read_links("G_DEV_ALL", device.iox, _DEVICE_RECORD, timeout=timeout)
+        except TimeoutError as error:
+            with contextlib.suppress(IoxError):
+                await self.soap(
+                    "DeviceSpecific",
+                    {"command": "STOP", "node": device.iox, "option": "", "flag": 1, "CDATA": ""},
+                    timeout=10,
+                )
+            raise DeviceUnresponsive(f"{device.device} did not answer within {timeout:g} s") from error
+        except IoxError as error:
+            if error.status == 501:
+                raise DeviceUnresponsive(f"{device.device} did not answer; IoX gave up (HTTP 501)") from error
+            raise
+
+    async def _read_links(self, command: str, node: str, action: str, *, timeout: float) -> list[Link]:
+        """Run one `DeviceSpecific` Link-table read and collect its `_2` records.
+
+        The read ends when the call has returned and either a record with flags
+        0 (the end of a Device's table) or not busy (`_5` 0) has arrived, or a
+        short grace after the call returns passes with no events. Raises
+        TimeoutError after `timeout` seconds, and IoxError if the call fails.
+        """
         records: list[Link] = []
         busy = ended = False
+        getter: asyncio.Future[Event] | None = None
         async with self.events() as queue:
             call = asyncio.create_task(
                 self.soap(
                     "DeviceSpecific",
-                    {"command": "G_PLM_ALL", "node": modem.iox, "option": "", "flag": 1, "CDATA": "0 -1"},
+                    {"command": command, "node": node, "option": "", "flag": 1, "CDATA": "0 -1"},
                     timeout=timeout,
                 )
             )
@@ -294,20 +358,23 @@ class IoxClient:
                                 break
                             continue
                         event = getter.result()
-                        if event.control == "_2" and event.action == "1":
-                            records.append(_link(event.info))
+                        if event.control == "_2" and event.action == action:
+                            link = _link(event.info)
+                            if link.flags == 0:
+                                ended = True
+                            else:
+                                records.append(link)
                         elif event.control == "_5" and event.action == "1":
                             busy = True
                         elif event.control == "_5" and event.action == "0" and busy:
                             ended = True
                     call.result()
-            except TimeoutError as error:
-                raise IoxError(f"the Modem Link table read took over {timeout:.0f} s") from error
             finally:
-                if not call.done():
-                    call.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await call
+                for task in (getter, call):
+                    if task is not None and not task.done():
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await task
         return records
 
     async def programs(self) -> list[Program]:
@@ -611,12 +678,14 @@ def parse_nodes(text: str, uuid: str) -> Network:
         if int(group.get("flag", "0")) & _FLAG_ROOT:
             continue
         links = [(link.get("type"), ButtonAddress.try_parse(link.text or "")) for link in group.iter("link")]
+        device_group = group.findtext("deviceGroup", "").strip()
         scenes.append(
             Scene(
                 address=group.findtext("address", "").strip(),
                 name=group.findtext("name", ""),
                 controllers=tuple(button for link_type, button in links if link_type == _CONTROLLER and button),
                 responders=tuple(button for link_type, button in links if link_type != _CONTROLLER and button),
+                group=int(device_group) if device_group.isdigit() else None,
             )
         )
 
@@ -675,9 +744,9 @@ def _transport_error(what: str, error: aiohttp.ClientError) -> IoxError:
 
 def _raise_for_status(status: int, what: str) -> None:
     if status == 401:
-        raise IoxError(f"{what}: HTTP 401, IoX refused the user name or password")
+        raise IoxError(f"{what}: HTTP 401, IoX refused the user name or password", status=status)
     if status >= 400:
-        raise IoxError(f"{what}: HTTP {status}")
+        raise IoxError(f"{what}: HTTP {status}", status=status)
 
 
 def _ssl_setting(base_url: str, cert_sha256: str | None) -> bool | aiohttp.Fingerprint:
