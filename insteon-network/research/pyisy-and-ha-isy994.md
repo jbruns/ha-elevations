@@ -103,6 +103,10 @@ PyISY does surface node-change events (`ND`, `NR`, `GD`, `GR`, `MV`, `RG`, `NN`,
 
 ### Re-adding the integration keeps entity settings
 - HA's entity registry keeps deleted entities. When an entity is re-created with the same `(domain, platform, unique_id)`, it gets back its `entity_id`, name, area and disabled state (`entity_registry.py`, `async_get_or_create`). **H**
+- An entity can be renamed (`config/entity_registry/update`, `new_entity_id`) to an ID that only a deleted entity held: `_entity_id_available` counts such an ID as free, but not one that is registered or in the state machine. A rename must keep the domain. A refused rename answers `invalid_info` (`entity_registry.py` `_async_update_entity`; `components/config/entity_registry.py`). **H**
+  - When isy994's reload removes an entity (`util.py`, `entity_registry.async_remove`), HA also removes its restored, unavailable state (`entity_registry.py` `_async_setup_entity_restore`), so its ID is then free. **H**
+  - A deleted entity whose unique ID returns gets back its ID only if that ID is still free, otherwise a new one. It also gets back its name, icon, area, labels, aliases, device class, options, and disabled and hidden state (`async_get_or_create`). **H**
+  - Through the API, `disabled_by` and `hidden_by` take only `user` or null. **H**
 - isy994 has no reconfigure flow, so changing the URL from `http://` to `https://` means deleting and re-adding the integration. Done on 2026-11-23: all 390 entities came back with their settings, and stale devices from an older controller were dropped. **V**
 
 ---

@@ -1,8 +1,8 @@
 """Home Assistant over its WebSocket API, and its REST config API.
 
 Reads: registries, search, dashboards and the config of automations, scripts
-and scenes. Writes: removing a device, reloading the isy994 integration, and
-saving an automation, script, scene or dashboard config through HA's own
+and scenes. Writes: removing a device, changing a device's or an entity's
+registry entry, reloading the isy994 integration, and saving an automation, script, scene or dashboard config through HA's own
 config API (never `.storage`). The tool Reconciles Home Assistant to the
 Controller, never the other way round.
 """
@@ -293,6 +293,19 @@ class HaClient:
         await self.call(
             "call_service", domain="homeassistant", service="reload_config_entry", service_data={"entry_id": entry_id}
         )
+
+    async def update_entity(self, entity_id: str, **changes: Any) -> dict[str, Any]:
+        """Change an entity's registry entry (`config/entity_registry/update`): its ID, name, area and so on.
+
+        `new_entity_id` renames it. HA refuses an ID another entity holds, but
+        not one a deleted entity held.
+        """
+        result = await self.call("config/entity_registry/update", entity_id=entity_id, **changes)
+        return (result or {}).get("entity_entry", {})
+
+    async def update_device(self, device_id: str, **changes: Any) -> None:
+        """Change a device's registry entry (`config/device_registry/update`): its area, name and labels."""
+        await self.call("config/device_registry/update", device_id=device_id, **changes)
 
     async def remove_config_entry(self, device_id: str, config_entry_id: str) -> None:
         """Detach a device from a config entry; HA deletes a device left with none."""

@@ -31,6 +31,8 @@ Vocabulary follows [`../CONTEXT.md`](../CONTEXT.md). IoX calls a Device or Butto
 | [AC-eol] | https://www.universal-devices.com/?p=278228 |
 | [iox6-ports] | https://forum.universal-devices.com/topic/45676-questions-after-update-to-iox-v600/page/3 (UDI staff Geddy and bmercier) |
 | [eisy-guide] | https://wiki.universal-devices.com/Eisy:User_Guide |
+| [wiki-replace] | https://wiki.universal-devices.com/ISY-99i/ISY-26_INSTEON:Replacing_a_Device |
+| [forum-replace] | https://forum.universal-devices.com/topic/42446-replace-failed-switch-with-new/ (moderator confirms) |
 
 ---
 
@@ -145,12 +147,14 @@ Parameters are from [live-WSDL] with inherited fields expanded, in schema order.
 | Restore all Devices | `RestoreDevices` (`RestoreDevicesFromNodes`) | `flag` | **V** schema |
 | Restore the Modem | `ReplaceModem` | none | **V** schema |
 | Delete the Modem | `RemoveModem` | none | **V** schema |
-| Replace a Device | `ReplaceDevice` | `node` (old), `NewNode`, `firmware` | **V** schema; eisy-ui sends `id`, `name` = new address, `command` = device type [EISYUI-family] (**H**) |
+| Replace a Device | `ReplaceDevice` | `node` (old), `NewNode`, `firmware` | **V** schema; eisy-ui sends `id`, `name` = new address, `command` = device type [EISYUI-family] (**H**). The new Device must be added first and be the same type [wiki-replace][forum-replace] (**M**); see below |
 | Batch mode | `SetBatchMode` | `flag` (0/1) | **V** schema |
 | Battery Device writes | `SetBatteryDeviceWriteMode` | `flag` (0/1) | **V** schema |
 | Full node config | `GetNodesConfig` | none; same shape as `/rest/nodes` | **V** schema |
 | Link tables | `DeviceSpecific` (unpublished) | `command`, `node`, `option`, `flag`=1, `CDATA`="0 -1" | **V** |
 | Read a config file | `GetSysConf` (unpublished) | `name` (e.g. `/CONF/D2D/<id>.PGM`) [ISYlib] | **V**: on IoX 6.0.5 it answers with the file's raw D2D XML. Unpublished, so the tool reads D2D over SSH instead |
+
+**Replace.** The Admin Console's "Replace with" lists only Devices the Controller already has, of the same type as the old one: "First add a device that will be the new device" [wiki-replace]. The wiki adds that it "exchanges the links from the old device to the new one" in every other Device, that the old Device must not be in a folder, and that the Admin Console closes afterwards. Older firmware also asked for a reboot [forum-replace]. **M** The schema's `firmware` matches eisy-ui's `command`, the new Device's type, so the tool sends `/rest/nodes`'s `<type>` (`1.32.65.0`). **L** No source says what `/rest/nodes` shows afterwards: whether the old address is gone, which name the new Device has, or whether the two are swapped. The tool therefore reads the Controller again and only Reconciles HA once the old address is gone and the new one remains. **L**
 
 Where eisy-ui's 2026 code sends different parameter names from the live schema (`ReplaceDevice` above; `AddNode` with `ntype` in place of `type`; `WriteDeviceUpdates` and `RestoreDeviceFromNode` with `id` in place of `node`) [EISYUI-family], the live schema has not yet been tested against eisy-ui's names. **M**
 
@@ -286,4 +290,5 @@ Decoded from the Controller's own files (IoX 6.0.5, 31 files, 83 statements). **
    - Pending Writes: `_3` `WH` means a node has Pending Writes, and `_3` `WD` means IoX is writing to it [NUCORE-events]. No event is documented for "Pending Writes cleared". The tool treats a node as still pending when its last `WH`/`WD` event during a write was `WH`. **L**
    - Whether each write's SOAP call returns before or after IoX finishes. The tool waits either way, until `_5` not busy, or 5 s without a busy event. For a Battery Device in linking mode it waits on, up to 4 minutes, until IoX writes its Pending Writes (`WD`).
    - `/rest/programs/<id>/disable|enable`: the wiki gives the path; what IoX 6.0.5 answers is unconfirmed. The tool counts any HTTP 2xx as sent, then reads `/rest/programs` again and reports any program whose `enabled` did not change. **L**
+   - `ReplaceDevice`: whether IoX takes the schema's `node`, `NewNode` and `firmware` (`node` and `NewNode` as primary Button addresses, `firmware` as the new Device's `<type>`), or only eisy-ui's `id`, `name` and `command`. Then what `/rest/nodes` holds afterwards, whether IoX needs a reboot, whether the old Device must be outside folders as the Admin Console required, and how long the call takes (the tool waits up to 30 minutes). If IoX ignores the call, `insteon replace` stops at its check with HA untouched.
    - Whether `RemoveFromGroup` on an Unresponsive Device makes IoX try to write to it at once. If it does, each call may stay busy until IoX gives up; a call busy for over 300 s stops `remove` before the Device is removed.

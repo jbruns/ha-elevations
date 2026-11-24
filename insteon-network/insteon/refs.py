@@ -95,7 +95,11 @@ class RefsReport:
 async def refs(iox: IoxClient, ha: HaClient, name: str, *, repo: Path) -> RefsReport:
     network = await iox.network()
     registry = await ha.registry()
-    device = resolve_device(name, network, registry)
+    return await report(ha, resolve_device(name, network, registry), network, registry, repo=repo)
+
+
+async def report(ha: HaClient, device: Device, network: Network, registry: HaRegistry, *, repo: Path) -> RefsReport:
+    """Every Reference to the entities of a Device already resolved."""
     entities = device_entities(device, network, registry)
     entity_ids = [entity.entity_id for entity in entities]
 
