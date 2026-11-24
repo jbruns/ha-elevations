@@ -440,6 +440,12 @@ class FakeHa:
     """Editable automation, script and scene configs, by entity ID, as HA's config API serves them."""
     reload_drops: set[str] = field(default_factory=set)
     """Entity IDs a reload of the isy994 entry removes: those the Controller no longer has."""
+    close_after: int | None = None
+    """Drop each connection after this many commands, as an idle-timeout proxy would."""
+    connections: int = 0
+    """WebSocket sessions authenticated so far."""
+    drop_before_reply_to: str | None = None
+    """A command type that HA carries out but whose reply is lost: the connection drops first."""
 
     def writes(self) -> list[dict[str, Any]]:
         """Every command that changes Home Assistant, in order."""
@@ -512,12 +518,24 @@ class FakeHa:
             await ws.close()
             return ws
         await ws.send_json({"type": "auth_ok"})
+        self.connections += 1
+        answered = 0
         async for message in ws:
             if message.type != WSMsgType.TEXT:
                 break
             command = message.json()
             self.commands.append(command)
-            await ws.send_json({"id": command["id"], "type": "result", **self._result(command)})
+            result = self._result(command)
+            if command["type"] == self.drop_before_reply_to:
+                assert request.transport is not None
+                request.transport.close()
+                break
+            await ws.send_json({"id": command["id"], "type": "result", **result})
+            answered += 1
+            if self.close_after is not None and answered >= self.close_after:
+                assert request.transport is not None
+                request.transport.close()  # drop the TCP connection, as a proxy does
+                break
         return ws
 
     async def _config(self, request: web.Request) -> web.StreamResponse:

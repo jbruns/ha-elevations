@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from insteon_fakes import FakeHa, TOKEN
 from insteon_fakes import fake_ha, ha_url  # noqa: F401 (fixtures)
@@ -29,6 +31,32 @@ async def test_a_refused_command_raises_with_home_assistants_reason(ha_url: str)
     async with HaClient(ha_url, TOKEN) as ha:
         with pytest.raises(HaError, match="not_found"):
             await ha.remove_config_entry("no-such-device", "isy-entry")
+
+
+async def test_a_connection_closed_while_idle_is_reopened_for_the_next_command(
+    ha_url: str, fake_ha: FakeHa
+) -> None:
+    fake_ha.close_after = 1  # e.g. a proxy dropping the socket during a long Modem Restore
+    async with HaClient(ha_url, TOKEN) as ha:
+        await ha.call("config/device_registry/list")
+        await asyncio.sleep(0.2)  # idle: the drop lands before the next command
+        await ha.remove_config_entry("gone", "isy-entry")
+
+    assert fake_ha.connections == 2
+    assert [c["type"] for c in fake_ha.commands] == [
+        "config/device_registry/list",
+        "config/device_registry/remove_config_entry",
+    ]
+
+
+async def test_a_command_ha_may_have_acted_on_is_not_resent(ha_url: str, fake_ha: FakeHa) -> None:
+    fake_ha.drop_before_reply_to = "config/device_registry/remove_config_entry"
+    async with HaClient(ha_url, TOKEN) as ha:
+        with pytest.raises(HaError, match="closed the connection"):
+            await ha.remove_config_entry("gone", "isy-entry")
+
+    assert fake_ha.connections == 1
+    assert fake_ha.removed() == ["gone"]
 
 
 async def test_a_wrong_token_is_reported_plainly(ha_url: str) -> None:

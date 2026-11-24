@@ -92,6 +92,10 @@ class Automation:
     """HA device IDs, as in device triggers and targets."""
 
 
+class _Unsent(Exception):
+    """The WebSocket was closed before a command left the client, so HA never saw it."""
+
+
 class HaClient:
     """One authenticated WebSocket session. Use as an async context manager."""
 
@@ -109,19 +113,27 @@ class HaClient:
     async def __aenter__(self) -> HaClient:
         self._session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(family=self._family))
         try:
+            await self._connect()
+        except HaError:
+            await self.__aexit__(None, None, None)
+            raise
+        return self
+
+    async def _connect(self) -> None:
+        """Open and authenticate the WebSocket."""
+        if self._session is None:
+            raise RuntimeError("HaClient must be used as an async context manager")
+        if self._ws is not None and not self._ws.closed:
+            await self._ws.close()
+        try:
             self._ws = await self._session.ws_connect(self._url, timeout=aiohttp.ClientWSTimeout(ws_close=10))
             await self._receive()  # auth_required
             await self._ws.send_json({"type": "auth", "access_token": self._token})
             reply = await self._receive()
             if reply.get("type") != "auth_ok":
                 raise HaError("Home Assistant refused the access token")
-        except (aiohttp.ClientError, TimeoutError) as error:
-            await self.__aexit__(None, None, None)
+        except aiohttp.ClientError as error:
             raise HaError(f"cannot reach Home Assistant: {error}") from error
-        except HaError:
-            await self.__aexit__(None, None, None)
-            raise
-        return self
 
     async def __aexit__(
         self, kind: type[BaseException] | None, error: BaseException | None, trace: TracebackType | None
@@ -138,23 +150,46 @@ class HaClient:
             raise RuntimeError("HaClient must be used as an async context manager")
         return self._ws
 
+    async def _exchange(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._socket.closed:
+            raise _Unsent
+        message_id = next(self._ids)
+        try:
+            await self._socket.send_json({"id": message_id, "type": kind, **payload})
+        except aiohttp.ClientConnectionResetError as error:
+            raise _Unsent from error
+        while True:
+            reply = await self._receive()
+            if reply.get("id") == message_id and reply.get("type") == "result":
+                return reply
+
     async def _receive(self) -> dict[str, Any]:
         try:
             message = await self._socket.receive_json(timeout=self._timeout)
         except TypeError as error:  # a close frame instead of JSON
             raise HaError("Home Assistant closed the connection") from error
+        except TimeoutError as error:
+            raise HaError(f"Home Assistant did not answer within {self._timeout:g} s") from error
         if not isinstance(message, dict):
             raise HaError(f"unexpected message from Home Assistant: {message!r}")
         return message
 
     async def call(self, kind: str, **payload: Any) -> Any:
-        """Send one command and return its result. Raises HaError if it fails."""
-        message_id = next(self._ids)
-        await self._socket.send_json({"id": message_id, "type": kind, **payload})
-        while True:
-            reply = await self._receive()
-            if reply.get("id") == message_id and reply.get("type") == "result":
-                break
+        """Send one command and return its result. Raises HaError if it fails.
+
+        A socket closed while idle (a proxy's idle timeout during a long Modem Restore, say)
+        is reopened once and the command sent on the new one. Only a command that never left
+        the client is resent: one HA may have acted on raises instead, as a repeated write
+        need not succeed.
+        """
+        try:
+            reply = await self._exchange(kind, payload)
+        except _Unsent:
+            await self._connect()
+            try:
+                reply = await self._exchange(kind, payload)
+            except _Unsent as error:
+                raise HaError("Home Assistant closed the connection") from error
         if not reply.get("success"):
             error = reply.get("error") or {}
             code = error.get("code", "error")
