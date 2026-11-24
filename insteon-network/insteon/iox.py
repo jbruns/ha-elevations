@@ -8,8 +8,9 @@ archives them as the IoX backup. The wire facts it relies on are in
 
 The writes (`IoxClient.remove_device` and the rest) send the body elements and
 parameters of the Controller's own schema (iox-api.md §3). Each one waits until
-IoX is no longer busy, so only one Modem operation runs at a time. Only a
-command on the rails (`insteon.rails`) may call them.
+IoX is no longer busy, so only one Modem operation runs at a time. The one
+REST write, `IoxClient.set_program_enabled`, enables or disables a program.
+Only a command on the rails (`insteon.rails`) may call any of them.
 
 IoX's XML comes from the Administrator's own Controller on the local network,
 so it is parsed with the standard library.
@@ -565,6 +566,14 @@ class IoxClient:
     async def programs(self) -> list[Program]:
         """Every program and program folder, without bodies (`/rest/programs`)."""
         return parse_programs(await self.get("programs?subfolders=true"))
+
+    async def set_program_enabled(self, program: Program, enabled: bool) -> None:
+        """Enable or disable a program (`/rest/programs/<id>/enable|disable`).
+
+        A write, though a GET: only a command on the rails may call it. The
+        caller confirms the change by reading `/rest/programs` again.
+        """
+        await self.get(f"programs/{program.iox_id}/{'enable' if enabled else 'disable'}")
 
     async def variables(self) -> list[Variable]:
         """Every integer and state variable, with its value and init."""

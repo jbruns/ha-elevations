@@ -11,6 +11,7 @@ import base64
 import io
 import tarfile
 import contextlib
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +37,8 @@ WRITES = frozenset(
         "SetSceneProfile", "WriteDeviceUpdates", "RestoreDeviceFromNode", "ReplaceModem",
     }
 )
+# The REST calls that change IoX: a program's enable or disable.
+PROGRAM_ACTION = re.compile(r"programs/([0-9A-Fa-f]{1,4})/(enable|disable)")
 TOKEN = "example-token"
 
 
@@ -96,6 +99,10 @@ class FakeIox:
     """Devices whose G_DEV_ALL read never ends, so the client's own timeout fires."""
     soap_calls: list[dict[str, Any]] = field(default_factory=list)
     gets: list[str] = field(default_factory=list)
+    rest_writes: list[str] = field(default_factory=list)
+    """The REST calls that change IoX (`PROGRAM_ACTION`), in order."""
+    ignored_programs: set[str] = field(default_factory=set)
+    """Program ids (`000A`) whose enable or disable IoX answers as done but does not apply."""
     addable: dict[str, str] = field(default_factory=dict)
     """`<node>` XML that AddNode adds, by the `id` it is sent. An id missing here is not added."""
     refuse: set[str] = field(default_factory=set)
@@ -117,6 +124,9 @@ class FakeIox:
             return web.Response(status=401)
         path = request.match_info["path"]
         self.gets.append(path)
+        if action := PROGRAM_ACTION.fullmatch(path):
+            self.rest_writes.append(path)
+            return self._program_action(action[1], action[2] == "enable")
         body = {
             "nodes": self.nodes_xml,
             "config": self.config_xml,
@@ -126,6 +136,20 @@ class FakeIox:
         if body is None:
             return web.Response(status=404)
         return web.Response(text=body, content_type="text/xml")
+
+    def _program_action(self, program_id: str, enabled: bool) -> web.StreamResponse:
+        """Enable or disable a program, as IoX does: 404 for an unknown id, nothing for a folder."""
+        root = ET.fromstring(self.programs_xml)
+        program = next((p for p in root.iter("program") if int(p.get("id", ""), 16) == int(program_id, 16)), None)
+        if program is None:
+            return web.Response(status=404)
+        if program.get("folder") != "true" and program.get("id") not in self.ignored_programs:
+            program.set("enabled", "true" if enabled else "false")
+        self.programs_xml = ET.tostring(root, encoding="unicode")
+        return web.Response(
+            text='<?xml version="1.0" encoding="UTF-8"?><RestResponse succeeded="true"><status>200</status></RestResponse>',
+            content_type="text/xml",
+        )
 
     async def _subscribe(self, request: web.Request) -> web.StreamResponse:
         if not self._authorised(request):
@@ -248,8 +272,10 @@ class FakeIox:
         self.nodes_xml = ET.tostring(root, encoding="unicode")
 
     def writes(self) -> list[tuple[str, dict[str, str]]]:
-        """Every write the tool sent, in order: its body element and parameters."""
-        return [(c["element"], c["params"]) for c in self.soap_calls if c["element"] in WRITES]
+        """Every write the tool sent: each SOAP write's body element and parameters, in order,
+        then each REST write as `REST <path>`."""
+        soap = [(c["element"], c["params"]) for c in self.soap_calls if c["element"] in WRITES]
+        return soap + [(f"REST {path}", {}) for path in self.rest_writes]
 
     async def _broadcast(self, events: list[str]) -> None:
         for ws in self._sockets:

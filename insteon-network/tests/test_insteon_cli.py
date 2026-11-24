@@ -114,6 +114,55 @@ async def test_programs_without_the_ssh_login_fails_naming_the_missing_settings(
     assert await run(["--private-dir", str(private), "programs"]) == 1
 
     assert "does not set IOX_SSH_USER, IOX_SSH_PASSWORD" in capsys.readouterr().err
+
+
+# insteon programs --disable/--enable ---------------------------------------------
+
+
+async def test_programs_disable_is_a_dry_run_without_apply(
+    programs_private: Path, fake_iox: FakeIox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(programs_private), "programs", "--disable", "Example Folder"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Would disable 1 program:" in out and "Dry run: nothing changed" in out
+    assert "IoX programs:" not in out, "a lifecycle action does not print the export"
+    assert fake_iox.writes() == []
+
+
+async def test_programs_disable_with_apply_backs_up_iox_into_the_private_folder_first(
+    programs_private: Path, fake_iox: FakeIox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(programs_private), "programs", "--disable", "0003", "000A", "--apply"]) == 0
+
+    (archive,) = (programs_private / "eisy" / "backups").iterdir()
+    assert f"IoX backup: {archive}" in capsys.readouterr().out
+    assert fake_iox.writes() == [("REST programs/0003/disable", {}), ("REST programs/000A/disable", {})]
+
+
+async def test_programs_enable_fails_when_iox_leaves_a_program_unchanged(
+    programs_private: Path, fake_iox: FakeIox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake_iox.ignored_programs.add("0004")
+
+    assert await run(["--private-dir", str(programs_private), "programs", "--enable", "0004", "--apply"]) == 1
+
+    captured = capsys.readouterr()
+    assert "Not enabled: /rest/programs still shows 1 program disabled:" in captured.out
+    assert "insteon: error: 1 program did not change; run the same command again to retry" in captured.err
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [["programs", "--apply"], ["programs", "--disable", "0003", "--enable", "000A"]],
+)
+async def test_programs_refuses_apply_alone_and_both_actions_at_once(
+    programs_private: Path, arguments: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit:
+        await run(["--private-dir", str(programs_private), *arguments])
+
+    assert exit.value.code == 2
 async def test_audit_prints_the_report_and_its_progress_apart(
     private: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

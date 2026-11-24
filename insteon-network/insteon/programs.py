@@ -33,6 +33,7 @@ from insteon.program import (
     VariableKind,
     VariableRef,
     Wait,
+    folder_path,
 )
 
 _OPS = {"IS": "is", "ISNOT": "is not"}
@@ -78,14 +79,7 @@ class ProgramsExport:
 
     def path(self, program: Program) -> str:
         """The folder path to a program or folder, such as `My Programs/Lights/`."""
-        names: list[str] = []
-        parent = program.parent if not program.is_folder else program.id
-        seen: set[int] = set()
-        while parent is not None and parent not in seen and (folder := self.program(parent)) is not None:
-            seen.add(parent)
-            names.append(folder.name)
-            parent = folder.parent
-        return "".join(f"{name}/" for name in reversed(names))
+        return folder_path(program, self.programs)
 
     def variable(self, ref: VariableRef) -> Variable | None:
         return next((v for v in self.variables if v.ref == ref), None)

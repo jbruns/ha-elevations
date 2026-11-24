@@ -154,6 +154,17 @@ Parameters are from [live-WSDL] with inherited fields expanded, in schema order.
 
 Where eisy-ui's 2026 code sends different parameter names from the live schema (`ReplaceDevice` above; `AddNode` with `ntype` in place of `type`; `WriteDeviceUpdates` and `RestoreDeviceFromNode` with `id` in place of `node`) [EISYUI-family], the live schema has not yet been tested against eisy-ui's names. **M**
 
+### Deleting programs, program folders and variables
+
+Neither SOAP nor REST documents a call that deletes a program or a variable. **V** (the live schema), **H** (REST wiki)
+
+- The live WSDL's operations include none for programs other than `SetProgramOptions`, which sets catch-up, grace period and HTML role, not a program. The only variable operations are `SetVariable` and `GetVariable(s)`, which set and read values. **V** schema
+- `RemoveFolder` (`id`) "removes a folder (permanently) from configuration". It pairs with `AddFolder` and `RenameFolder`, so it is about node folders, which hold Devices and Scenes, not program folders. **M**: inferred from the schema, not tested.
+- REST's program calls are run, stop, enable, disable and run-at-startup (§2). Its variable calls set a value or an init [REST-wiki]. None deletes. **H**
+- IoX keeps programs in `CONF/D2D/*.PGM` and variables in `CONF/INTEGER.VAR` and `CONF/STATE.VAR` (§5). These files must never be written while `isy` runs (§5). How the Admin Console or eisy-ui deletes them isn't documented.
+
+So `insteon` disables and enables programs (`programs --disable|--enable`) and leaves deleting to eisy-ui, as a one-off.
+
 The Admin Console uses the same protocol: UDI says its Python action constants "are the same as the Java SDK's IoXSOAPActions constants" [NUCORE-wrapper `iox_definitions.py`]. **M** (indirect)
 
 ---
@@ -274,4 +285,5 @@ Decoded from the Controller's own files (IoX 6.0.5, 31 files, 83 statements). **
    - `SetSceneProfile`: the tool sends `OL` as 0-255, the byte a Responder's Link holds, and `RR` as an index into Insteon's table. eisy-ui's JSON API takes OL as a percent with uom 51 [NUCORE-groups]; the SOAP encoding is unconfirmed. **L** Check with `G_ISY_ALL` on the Responder afterwards: the Link's D1 should be the byte sent.
    - Pending Writes: `_3` `WH` means a node has Pending Writes, and `_3` `WD` means IoX is writing to it [NUCORE-events]. No event is documented for "Pending Writes cleared". The tool treats a node as still pending when its last `WH`/`WD` event during a write was `WH`. **L**
    - Whether each write's SOAP call returns before or after IoX finishes. The tool waits either way, until `_5` not busy, or 5 s without a busy event. For a Battery Device in linking mode it waits on, up to 4 minutes, until IoX writes its Pending Writes (`WD`).
+   - `/rest/programs/<id>/disable|enable`: the wiki gives the path; what IoX 6.0.5 answers is unconfirmed. The tool counts any HTTP 2xx as sent, then reads `/rest/programs` again and reports any program whose `enabled` did not change. **L**
    - Whether `RemoveFromGroup` on an Unresponsive Device makes IoX try to write to it at once. If it does, each call may stay busy until IoX gives up; a call busy for over 300 s stops `remove` before the Device is removed.

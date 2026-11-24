@@ -14,6 +14,7 @@ from pathlib import Path
 from insteon import add as add_command
 from insteon import audit as audit_command
 from insteon import inventory as inventory_command
+from insteon import lifecycle as lifecycle_command
 from insteon import programs as programs_command
 from insteon import prune as prune_command
 from insteon import refs as refs_command
@@ -62,10 +63,11 @@ def _parser() -> argparse.ArgumentParser:
     prune = commands.add_parser("prune", help="remove Stale HA Devices")
     prune.add_argument("--apply", action="store_true", help="remove them; without it, only list them")
 
-    commands.add_parser(
+    programs = commands.add_parser(
         "programs",
         help="export IoX programs and variables as text, flagging HA automations on the same Devices",
     )
+    _program_lifecycle_options(programs)
 
     audit = commands.add_parser("audit", help="Link Audit: differences, Stale Links, Unresponsive Devices (read-only)")
     audit.add_argument(
@@ -148,7 +150,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def run(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.command == "programs" and args.apply and not (args.disable or args.enable):
+        parser.error("programs: --apply needs --disable or --enable; the export changes nothing")
     private = Private.locate(args.private_dir)
     try:
         if args.command == "inventory":
@@ -223,10 +228,42 @@ async def _prune(args: argparse.Namespace, private: Private) -> None:
 
 
 async def _programs(args: argparse.Namespace, private: Private) -> None:
+    if args.disable or args.enable:
+        await _program_lifecycle(args, private)
+        return
     files = _iox_files(private)
     async with _iox(private) as iox, _ha(private, args) as ha:
         result = await programs_command.export(iox, files, ha)
     print(programs_command.render(result), end="")
+
+
+# insteon programs --disable/--enable ---------------------------------------------
+
+
+def _program_lifecycle_options(programs: argparse.ArgumentParser) -> None:
+    action = programs.add_mutually_exclusive_group()
+    for flag, verb in (("--disable", "disable"), ("--enable", "enable")):
+        action.add_argument(
+            flag,
+            nargs="+",
+            metavar="PROGRAM",
+            help=f"{verb} these instead of exporting: program or folder ids (000A) or IoX names; a folder means every program in it",
+        )
+    programs.add_argument(
+        "--apply", action="store_true", help="with --disable or --enable: make the change (after backing up IoX)"
+    )
+
+
+async def _program_lifecycle(args: argparse.Namespace, private: Private) -> None:
+    backup = _iox_backup(private)
+    async with _iox(private) as iox:
+        result = await lifecycle_command.set_enabled(
+            iox, _rails(private, args.apply), backup, args.enable or args.disable, enabled=bool(args.enable)
+        )
+    print(lifecycle_command.render(result), end="")
+    if result.unchanged:
+        count = len(result.unchanged)
+        raise IoxError(f"{count} program{' did' if count == 1 else 's did'} not change; run the same command again to retry")
 
 
 async def _audit(args: argparse.Namespace, private: Private) -> None:

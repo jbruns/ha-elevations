@@ -12,6 +12,8 @@ uv run insteon inventory 1A.2B.3C        # only some Devices, and the Scenes the
 uv run insteon prune                     # list Stale HA Devices (a dry run)
 uv run insteon prune --apply             # remove them
 uv run insteon programs > .private/iox-programs.txt   # IoX programs and variables as text
+uv run insteon programs --disable 000A   # disable a program, or each program in a folder (a dry run; add --apply)
+uv run insteon programs --enable 000A    # enable it again
 uv run insteon audit                     # the Link Audit of every Device and the Modem (minutes)
 uv run insteon audit 1A.2B.3C            # only some Devices
 uv run insteon refs light.example        # every Reference to a Device's entities
@@ -62,7 +64,7 @@ A Stale HA Device that still has entities is held back, following the Reconcile 
 
 ### `programs`
 
-This command is read-only. It exports every IoX program and variable as text, the input to migrating them by hand into the contexts that own them (ADR 0012). For each program it prints:
+Without options, this command is read-only. It exports every IoX program and variable as text, the input to migrating them by hand into the contexts that own them (ADR 0012). For each program it prints:
 
 - its folder, id, enabled and run-at-startup state, whether its If was last true, and when it last ran;
 - its If, Then and Else, with Devices, Scenes and variables by name;
@@ -74,6 +76,18 @@ Each variable shows its type, id, name, value, init, and the programs that use i
 The list comes from `/rest/programs` and `/rest/vars`. The bodies come from the D2D files (`/var/isy/FILES/CONF/D2D/*.PGM`) over SSH. Only root can read them, so the tool runs one `tar` under `sudo -S` and sends the SSH password on stdin, never on a command line. Statements are decoded in the shapes IoX 6.0.5 writes. Any other shape is printed raw as `[not decoded]` and counted at the top, and a file that will not parse is printed whole as `[file not parsed]`, so no logic is dropped silently. The Devices such statements name still count toward possible duplicates.
 
 What HA automations reference comes from Home Assistant's own `search/related`: the entities and devices an automation names. An automation that reaches a Device only through an area or label isn't matched.
+
+#### Retiring a program: `--disable`, a week, then eisy-ui
+
+A program is retired once its Home Assistant replacement is live (ADR 0012), in three steps:
+
+1. `programs --disable PROGRAM…` stops it running. Each PROGRAM is a program or folder id as the export prints it (`000A`), or an IoX name in any case; an id wins over a name. A folder means every program in it and in its subfolders. A name that matches more than one program or folder fails and lists their ids.
+2. Watch for a week. If something breaks, `programs --enable PROGRAM…` turns it back on.
+3. Delete the programs, then their folders once empty, then the variables they used, by hand in eisy-ui. Delete a stale variable that no program uses, which the export shows as `used by no program`, the same way.
+
+`--disable` and `--enable` use `/rest/programs/<id>/disable|enable`, on the rails: a dry run until `--apply`, then the lock and the IoX backup first. A program already in the asked state is listed and left alone; if every program is, nothing is backed up. After applying, the tool reads `/rest/programs` again and lists any program whose state did not change, and exits with an error. Running the same command again retries only those.
+
+Deleting is a one-off done in eisy-ui, not a tool option. IoX's schema has no call that deletes a program or a variable ([research/iox-api.md](./research/iox-api.md) §3), so the tool would have to edit IoX's files, which isn't safe while IoX runs.
 ### `audit`
 
 The Link Audit. It is read-only, but it holds the lock throughout, since every Link-table read is a Modem operation. For each Device, it compares the Links the Device holds (`G_DEV_ALL`) with those the Controller expects (`G_ISY_ALL`). The Controller keeps no expected table for the Modem, so the Modem's expected Links are mirrored from the Devices' tables: a Device's Link with the Modem implies one in the Modem with the same group and the opposite role. It reports:
@@ -162,7 +176,7 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 | `insteon/rails.py` | Dry run, lock, backups and the Battery Device prompt |
 | `insteon/config.py` | Finds the private folder and reads the credentials |
 | `insteon/clean.py` | Taking a Device's References out of live HA's configs |
-| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/audit.py`, `insteon/refs.py`, `insteon/restore.py`, `insteon/remove.py`, `insteon/add.py`, `insteon/scene.py` | The commands |
+| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/lifecycle.py`, `insteon/audit.py`, `insteon/refs.py`, `insteon/restore.py`, `insteon/remove.py`, `insteon/add.py`, `insteon/scene.py` | The commands |
 | `insteon/cli.py` | The `insteon` entry point |
 
 ## Tests
