@@ -128,7 +128,7 @@ async def test_statements_not_decoded_are_counted_up_front_and_shown_raw(
 ) -> None:
     text = await exported(iox_url, ha_url, eisy_ssh)
 
-    assert "Bodies: 5 D2D files read over SSH; 2 statements not decoded, shown raw as [not decoded]" in text
+    assert "Bodies: 5 D2D files read over SSH; 2 statements not decoded, shown raw as [not decoded] or [file not parsed]" in text
     assert block(text, "Example Unknown")[1:5] == [
         "If",
         "[not decoded] <and /><schedule><daily /></schedule>",

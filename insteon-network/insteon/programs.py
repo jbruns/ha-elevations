@@ -174,7 +174,7 @@ def render(result: ProgramsExport) -> str:
     lines = [
         f"IoX programs: {len(programs)} programs in {len(folders)} folders",
         f"Bodies: {result.bodies_read} D2D files read over SSH; "
-        + (f"{undecoded} statements not decoded, shown raw as [not decoded]" if undecoded else "every statement decoded"),
+        + (f"{undecoded} statements not decoded, shown raw as [not decoded] or [file not parsed]" if undecoded else "every statement decoded"),
     ]
     if result.unlisted:
         count = len(result.unlisted)
