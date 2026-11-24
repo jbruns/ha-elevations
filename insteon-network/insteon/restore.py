@@ -24,7 +24,7 @@ MODEM = "modem"
 
 @dataclass
 class RestoreResult:
-    target: Device | None
+    device: Device | None
     """The Device, or None for the Modem."""
     applied: bool = False
     write: DeviceWrite | None = None
@@ -41,26 +41,28 @@ async def restore(
     prompt: Callable[[str], str] = input,
 ) -> RestoreResult:
     network = await iox.network()
-    target = None if name.strip().lower() == MODEM else resolve_device(name, network, registry)
-    result = RestoreResult(target)
+    device = None if name.strip().lower() == MODEM else resolve_device(name, network, registry)
+    result = RestoreResult(device)
     if not rails.apply:
         return result
     async with rails.changing("restore", [iox_backup]):
         result.iox_backup = iox_backup.path
-        if target is None:
+        if device is None:
             await iox.restore_modem()
         else:
-            result.write = await write_device(target, lambda: iox.restore_device(target.primary), prompt)
+            result.write = await write_device(
+                device, lambda clear: iox.restore_device(device.primary, until_clear=clear), prompt
+            )
         result.applied = True
     return result
 
 
 def render(result: RestoreResult) -> str:
-    target = result.target
-    what = "the Modem's Links" if target is None else f"the Links of {target.address} {target.name}"
+    device = result.device
+    what = "the Modem's Links" if device is None else f"the Links of {device.label}"
     if not result.applied:
         lines = [f"Would Restore {what} from the Controller's database."]
-        if target is not None and target.battery:
+        if device is not None and device.battery:
             lines.append("  A Battery Device: you will be asked to hold its Set button first.")
         lines.append("Dry run: nothing changed. Pass --apply to Restore.")
         return "\n".join(lines) + "\n"
@@ -71,9 +73,7 @@ def render(result: RestoreResult) -> str:
     else:
         lines.append(f"Restored {what}.")
     if write is not None and write.written and write.pending:
-        lines.append(
-            f"Pending Writes remain on {write.device.address} {write.device.name}: run restore again while holding Set."
-        )
+        lines.append(f"Pending Writes remain on {write.device.label}: run restore again while holding Set.")
     if result.iox_backup is not None:
         lines.append(f"IoX backup: {result.iox_backup}")
     lines.append("Run `insteon audit` on it to confirm.")

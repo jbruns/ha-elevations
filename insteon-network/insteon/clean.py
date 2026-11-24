@@ -1,9 +1,10 @@
 """`remove --clean`: take a removed Device's References out of live Home Assistant.
 
-Only through HA's own config API (ADR 0009 keeps applying to live HA an
-explicit, per-run choice): automations, scripts and scenes HA's editor can
-save, and storage-mode dashboards. Each is planned as a diff first, and the
-edit is applied only with `--apply`.
+Only through HA's own config API, never `.storage`: automations, scripts and
+scenes HA's editor can save, and storage-mode dashboards. Each edit is shown
+as a diff first. Applying it to live HA is an explicit choice on each run
+(#79): it needs `--apply`, and the Administrator confirms the diffs before
+anything is saved.
 
 What an edit does, in one config:
 - An entity is taken out of every list that names it, and a scene's entity
@@ -13,10 +14,9 @@ What an edit does, in one config:
   or stack it leaves empty: a container is deleted only when it would be left
   empty.
 - An automation, script, scene or dashboard itself is never deleted. Nor is a
-  branch whose condition goes while its actions stay, nor anything named in a
-  template or in a form the tool cannot edit. Each of those is left untouched
-  and listed for a hand edit.
-- An automation's own `conditions` may be left empty.
+  condition: dropping one would change when something runs or shows. Nor is
+  anything named in a template or in a form the tool cannot edit. Each of
+  those is left untouched and listed for a hand edit.
 
 Groups, persons, helpers, YAML-defined items and YAML dashboards can't be
 saved through the config API, so they are listed for a hand edit too.
@@ -39,8 +39,6 @@ from insteon.refs import find_mentions
 AUTOMATION, SCRIPT, SCENE, DASHBOARD = "automation", "script", "scene", "dashboard"
 _EDITABLE = (AUTOMATION, SCRIPT, SCENE)
 _BY_HAND = ("group", "person")
-# Top-level lists that may be left empty, by kind.
-_MAY_EMPTY = {AUTOMATION: frozenset({"conditions", "condition"})}
 _DEAD = object()
 """What a value becomes when removing the References leaves it naming nothing."""
 
@@ -61,7 +59,6 @@ def strip(config: Any, entities: Iterable[str], devices: Iterable[str], *, kind:
     """`config` without any reference to `entities` (entity IDs) or `devices` (HA device IDs)."""
     entity_ids, device_ids = frozenset(entities), frozenset(devices)
     by_key = {"entity_id": entity_ids, "entity": entity_ids, "device_id": device_ids}
-    may_empty = _MAY_EMPTY.get(kind, frozenset())
 
     def walk(value: Any, path: str, root: bool) -> Any:
         if isinstance(value, list):
@@ -99,10 +96,7 @@ def strip(config: Any, entities: Iterable[str], devices: Iterable[str], *, kind:
                 continue
             new = walk(item, where, False)
             if new is _DEAD:
-                if root and key in may_empty:
-                    kept_items[key] = []
-                else:
-                    emptied = emptied or where
+                emptied = emptied or where
                 continue
             kept_items[key] = new
         if dropped_key and value and not kept_items:
@@ -111,6 +105,8 @@ def strip(config: Any, entities: Iterable[str], devices: Iterable[str], *, kind:
             return kept_items
         if root:
             raise _Refused(f"removing it would leave {emptied} empty, and the tool never deletes a whole {kind}")
+        if "condition" in value:
+            raise _Refused(f"removing it would drop the condition at {path}, which changes when it runs")
         staying = next((key for key, item in kept_items.items() if isinstance(item, list) and item), None)
         if staying is not None:
             where = f"{path}.{staying}" if path else str(staying)
@@ -240,15 +236,9 @@ async def plan(ha: HaClient, entities: Sequence[str], devices: Sequence[str], he
     )
 
 
-async def apply(ha: HaClient, planned: CleanPlan, folder: Path) -> CleanResult:
-    """Make the planned edits. The caller holds the lock.
-
-    Each config is read again and stripped again, so a change made since the
-    plan is kept. Every config about to be saved is first written, as read,
-    to `<folder>/ha-config.json`: what to POST back to undo the edit.
-    """
-    result = CleanResult(by_hand=list(planned.by_hand))
-    edits = []
+async def refresh(ha: HaClient, planned: CleanPlan) -> CleanPlan:
+    """The plan again, from each config as it is now, so a change made since the plan is kept. Reads only."""
+    edits, by_hand = [], list(planned.by_hand)
     for edit in planned.edits:
         if edit.item.kind == DASHBOARD:
             config = await ha.dashboard_config(edit.item.url_path)
@@ -258,16 +248,27 @@ async def apply(ha: HaClient, planned: CleanPlan, folder: Path) -> CleanResult:
         if isinstance(outcome, Edit):
             edits.append(outcome)
         elif outcome is not None:
-            result.by_hand.append(HandEdit(edit.item.label, outcome))
-    if not edits:
+            by_hand.append(HandEdit(edit.item.label, outcome))
+    return CleanPlan(planned.entities, planned.devices, tuple(edits), tuple(by_hand))
+
+
+async def save(ha: HaClient, planned: CleanPlan, folder: Path) -> CleanResult:
+    """Save the planned edits. The caller holds the lock, and has shown the diffs and had them confirmed.
+
+    Every config about to be saved is first written, as read, to
+    `<folder>/ha-config.json`: what to POST back to undo the edit.
+    """
+    result = CleanResult(by_hand=list(planned.by_hand))
+    if not planned.edits:
         return result
     folder.mkdir(parents=True, exist_ok=True)
     backup = folder / "ha-config.json"
     backup.write_text(
-        json.dumps([{"kind": e.item.kind, "key": e.item.key, "config": e.before} for e in edits], indent=2) + "\n"
+        json.dumps([{"kind": e.item.kind, "key": e.item.key, "config": e.before} for e in planned.edits], indent=2)
+        + "\n"
     )
     result.backup = backup
-    for edit in edits:
+    for edit in planned.edits:
         if edit.item.kind == DASHBOARD:
             await ha.save_dashboard_config(edit.item.url_path, edit.after)
         else:

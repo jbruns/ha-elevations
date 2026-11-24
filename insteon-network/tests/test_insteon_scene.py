@@ -28,7 +28,7 @@ async def test_a_dry_run_says_what_would_change_and_writes_nothing(
     iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, fake_ha: FakeHa, tmp_path: Path
 ) -> None:
     result = await run(
-        iox_url, ha_url, eisy_ssh, tmp_path, scene_command.join("Example Scene", "11 22 33 4", controller=False), apply=False
+        iox_url, ha_url, eisy_ssh, tmp_path, scene_command.add_button("Example Scene", "11 22 33 4", controller=False), apply=False
     )
 
     assert fake_iox.writes() == [] and fake_ha.writes() == []
@@ -41,7 +41,7 @@ async def test_adding_a_responder_button_moves_it_into_the_scene_then_writes_eve
     iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, tmp_path: Path
 ) -> None:
     await run(
-        iox_url, ha_url, eisy_ssh, tmp_path, scene_command.join("12345", "Example Keypad B", controller=False), apply=True
+        iox_url, ha_url, eisy_ssh, tmp_path, scene_command.add_button("12345", "Example Keypad B", controller=False), apply=True
     )
 
     assert fake_iox.writes() == [
@@ -58,7 +58,7 @@ async def test_a_button_that_controls_one_scene_cannot_control_another(
 ) -> None:
     with pytest.raises(ResolveError, match="already controls Example Scene"):
         await run(
-            iox_url, ha_url, eisy_ssh, tmp_path, scene_command.join("Example Empty Scene", "11 22 33 3", controller=True),
+            iox_url, ha_url, eisy_ssh, tmp_path, scene_command.add_button("Example Empty Scene", "11 22 33 3", controller=True),
             apply=True,
         )
 
@@ -68,7 +68,7 @@ async def test_a_button_that_controls_one_scene_cannot_control_another(
 async def test_removing_a_button_takes_it_out_and_writes_the_members(
     iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, tmp_path: Path
 ) -> None:
-    await run(iox_url, ha_url, eisy_ssh, tmp_path, scene_command.leave("Example Three-Way", "Example Dimmer"), apply=True)
+    await run(iox_url, ha_url, eisy_ssh, tmp_path, scene_command.remove_button("Example Three-Way", "Example Dimmer"), apply=True)
 
     assert fake_iox.writes() == [
         ("RemoveFromGroup", {"node": "AA BB CC 1", "group": "23456"}),

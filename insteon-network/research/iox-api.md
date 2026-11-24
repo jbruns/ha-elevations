@@ -265,7 +265,7 @@ Decoded from the Controller's own files (IoX 6.0.5, 31 files, 83 statements). **
 4. Does `/rest/nodes/<addr>/write` still exist, or only `WriteDeviceUpdates`?
 5. The values `SetDeviceLinkMode` accepts for "auto / I1 / I2CS" linking.
 6. ~~The exact flag mask for the Link Audit.~~ Answered in §4: in-use and controller only.
-7. Does `RemoveNode` alone rewrite the peers' link tables? Test on one Device, then Link Audit. `insteon remove` doesn't rely on it: it leaves the Scenes, writes the peers, removes the Device, then audits and Restores the peers. The manual test in #84 audits before each step, which settles it.
+7. Does `RemoveNode` alone clean the Links other Devices hold to the removed one? Test on one Device, then Link Audit. `insteon remove` doesn't rely on it: it leaves the Scenes, writes the Scene Peers, removes the Device, then audits and Restores the Scene Peers. The manual test in #84 audits before each step, which settles it.
 8. The format of `CONF/*.REC`, and whether it matches `G_ISY_ALL`.
 9. The writes `insteon` sends have been tested only against a fake. Each needs a first live run, on one Device the Administrator nominates:
    - The parameter names: the tool sends the live schema's (`node` for `WriteDeviceUpdates` and `RestoreDeviceFromNode`), where eisy-ui sends `id` [EISYUI-family].
@@ -273,4 +273,5 @@ Decoded from the Controller's own files (IoX 6.0.5, 31 files, 83 statements). **
    - `AddGroup`: the tool picks the new Scene's address, one past the highest in use. Live addresses are 4 or 5 digits. **L**
    - `SetSceneProfile`: the tool sends `OL` as 0-255, the byte a Responder's Link holds, and `RR` as an index into Insteon's table. eisy-ui's JSON API takes OL as a percent with uom 51 [NUCORE-groups]; the SOAP encoding is unconfirmed. **L** Check with `G_ISY_ALL` on the Responder afterwards: the Link's D1 should be the byte sent.
    - Pending Writes: `_3` `WH` means a node has Pending Writes, and `_3` `WD` means IoX is writing to it [NUCORE-events]. No event is documented for "Pending Writes cleared". The tool treats a node as still pending when its last `WH`/`WD` event during a write was `WH`. **L**
-   - Whether each write's SOAP call returns before or after IoX finishes. The tool waits either way, until `_5` not busy, or 5 s without a busy event.
+   - Whether each write's SOAP call returns before or after IoX finishes. The tool waits either way, until `_5` not busy, or 5 s without a busy event. For a Battery Device in linking mode it waits on, up to 4 minutes, until IoX writes its Pending Writes (`WD`).
+   - Whether `RemoveFromGroup` on an Unresponsive Device makes IoX try to write to it at once. If it does, each call may stay busy until IoX gives up; a call busy for over 300 s stops `remove` before the Device is removed.

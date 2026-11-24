@@ -136,15 +136,11 @@ class Write:
     operation: str
     events: tuple[Event, ...]
 
-    def wrote_to(self, device: InsteonAddress) -> bool:
-        """IoX reported writing to the Device (`_3` WD on one of its Buttons)."""
-        return any(event.action == "WD" and _names(event.node, device) for event in self._node_events())
-
     def pending(self, device: InsteonAddress) -> bool:
         """IoX still holds Pending Writes for the Device: its last `_3` WH or WD event was WH."""
         last = None
         for event in self._node_events():
-            if event.action in ("WH", "WD") and _names(event.node, device):
+            if event.action in ("WH", "WD") and _is_button_of(event.node, device):
                 last = event.action
         return last == "WH"
 
@@ -152,7 +148,7 @@ class Write:
         return (event for event in self.events if event.control == "_3")
 
 
-def _names(node: str, device: InsteonAddress) -> bool:
+def _is_button_of(node: str, device: InsteonAddress) -> bool:
     button = ButtonAddress.try_parse(node)
     return button is not None and button.device == device
 
@@ -456,35 +452,47 @@ class IoxClient:
             "SetSceneProfile", {"node": responder.iox, "controller": controller, "control": control, "action": value}
         )
 
-    async def write_updates(self, device: ButtonAddress, *, timeout: float = WRITE_TIMEOUT) -> Write:
-        """Write a Device's Pending Writes to it now (`WriteDeviceUpdates`)."""
-        return await self._write("WriteDeviceUpdates", {"node": device.iox}, timeout=timeout)
+    async def write_updates(self, device: ButtonAddress, *, until_clear: bool = False) -> Write:
+        """Write a Device's Pending Writes to it now (`WriteDeviceUpdates`).
+
+        With `until_clear`, as for a Battery Device, wait until they clear (see `_write`).
+        """
+        return await self._write(
+            "WriteDeviceUpdates", {"node": device.iox}, until_clear=device.device if until_clear else None
+        )
 
     async def remove_device(self, device: ButtonAddress) -> Write:
         """Remove a Device and all its Buttons from the Controller (`RemoveNode` on its primary Button)."""
         return await self._write("RemoveNode", {"id": device.iox})
 
-    async def restore_device(self, device: ButtonAddress, *, timeout: float = WRITE_TIMEOUT) -> Write:
-        """Restore a Device's Links from the Controller's database (`RestoreDevice`)."""
+    async def restore_device(self, device: ButtonAddress, *, until_clear: bool = False) -> Write:
+        """Restore a Device's Links from the Controller's database (`RestoreDevice`).
+
+        With `until_clear`, as for a Battery Device, wait until its Pending Writes clear (see `_write`).
+        """
         return await self._write(
             "RestoreDevice",
             {"node": device.iox, "flag": _RESTORE_ALL},
             element="RestoreDeviceFromNode",
-            timeout=timeout,
+            until_clear=device.device if until_clear else None,
         )
 
     async def restore_modem(self, *, timeout: float = MODEM_RESTORE_TIMEOUT) -> Write:
         """Restore the Modem's Links from the Controller's database (`ReplaceModem`)."""
         return await self._write("ReplaceModem", {}, timeout=timeout)
 
-    async def add_device(self, address: InsteonAddress, name: str, *, flag: int) -> Write:
+    async def add_device(self, address: InsteonAddress, name: str, *, flag: int, until_clear: bool = False) -> Write:
         """Add a Device by its Insteon Address (`AddNode`).
 
         `flag` is IoX's NodeOperationsFlag: 1 erases the Device's Links, 3 adds
         the Devices it is linked to and builds Scenes from its Links. IoX reads
         the Device's type itself, so none is given.
         """
-        return await self._write("AddNode", {"id": address.iox, "name": name, "type": "", "flag": flag}, timeout=WRITE_TIMEOUT)
+        return await self._write(
+            "AddNode",
+            {"id": address.iox, "name": name, "type": "", "flag": flag},
+            until_clear=address if until_clear else None,
+        )
 
     async def _write(
         self,
@@ -493,14 +501,19 @@ class IoxClient:
         *,
         element: str | None = None,
         timeout: float = WRITE_TIMEOUT,
+        until_clear: InsteonAddress | None = None,
     ) -> Write:
         """Send one write and wait until IoX has finished it.
 
         IoX reports its work on the event stream: busy (`_5` 1), then not busy
         (`_5` 0). The write is done when the call has returned and IoX is no
         longer busy, or a short grace passes with no busy event at all. The
-        events seen meanwhile are returned, so a caller can tell which nodes
+        events seen meanwhile are returned, so a caller can tell which Devices
         IoX wrote to (`_3` WD) or still holds Pending Writes for (`_3` WH).
+
+        With `until_clear`, a Device in linking mode, the wait goes on while
+        IoX still holds Pending Writes for it, until it writes them or
+        `BATTERY_WINDOW` passes, when the Device leaves linking mode anyway.
         """
         events: list[Event] = []
         busy = settled = False
@@ -531,6 +544,14 @@ class IoxClient:
                         elif event.control == "_5" and event.action == "0":
                             busy, settled = False, True
                     call.result()
+                if until_clear is not None:
+                    with contextlib.suppress(TimeoutError):
+                        async with asyncio.timeout(BATTERY_WINDOW):
+                            while busy or Write(operation, tuple(events)).pending(until_clear):
+                                event = await queue.get()
+                                events.append(event)
+                                if event.control == "_5":
+                                    busy = event.action == "1"
             except TimeoutError as error:
                 raise IoxError(f"SOAP {operation}: IoX was still busy after {timeout:.0f} s") from error
             finally:
@@ -671,7 +692,7 @@ class IoxFiles:
         return _bytes(result.stdout)
 
 
-def _files_in(data: bytes, source: str, *, where: str = "SSH") -> dict[str, bytes]:
+def _files_in(data: bytes, source: str, *, where: str) -> dict[str, bytes]:
     """The files in a tar archive, by path. Raises IoxError when it is not one."""
     try:
         with tarfile.open(fileobj=io.BytesIO(data)) as archive:

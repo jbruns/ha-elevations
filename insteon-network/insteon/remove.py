@@ -5,14 +5,15 @@ the HA registries, plans again, then, in this order:
 
 1. takes each of the Device's Buttons out of each Scene it is in;
 2. writes the updates to the Device, unless it is Unresponsive, and to every
-   Device that shared a Scene with it (its former Scene peers);
+   Device that shared a Scene with it (its former Scene Peers);
 3. removes the Device from the Controller;
-4. runs a Link Audit on the former Scene peers, and Restores each one that
-   differs; reads the Modem's Links, and Restores the Modem if it still holds
-   a Link to the removed Device;
+4. runs a Link Audit on the former Scene Peers, and Restores each one that
+   differs; reads the Modem's Links, and Restores the Modem (`ReplaceModem`,
+   minutes for a full table) if it still holds a Link to the removed Device;
 5. Reconciles HA: reloads the isy994 integration, then removes the Stale HA
    Devices;
-6. with `--clean`, takes the Device's References out of live HA (`insteon.clean`).
+6. with `--clean`, shows the diffs, and once the Administrator confirms them,
+   takes the Device's References out of live HA (`insteon.clean`).
 
 An Unresponsive Device can't be written to, so step 2 skips it, but its peers
 and the Modem are still cleaned. Whether a Device is Unresponsive is decided
@@ -34,7 +35,7 @@ from insteon.ha import DOMAIN, HaClient
 from insteon.iox import DeviceUnresponsive, IoxClient, IoxError
 from insteon.network import Device, Network, Scene
 from insteon.prune import PruneResult, reconcile
-from insteon.rails import DeviceWrite, HaRegistryBackup, IoxBackup, Rails, hold_set, write_device
+from insteon.rails import HaRegistryBackup, IoxBackup, Rails, WriteReport, hold_set, write_device, write_updates_to
 from insteon.refs import RepoReference, device_entities, ha_device_ids, repo_references
 from insteon.resolve import resolve_device
 
@@ -65,16 +66,16 @@ class RemoveResult:
     plan: RemovePlan
     cleaning: bool
     applied: bool = False
-    writes: list[DeviceWrite] = field(default_factory=list)
-    failed_writes: list[str] = field(default_factory=list)
+    writes: WriteReport = field(default_factory=WriteReport)
     audit: AuditReport | None = None
-    restored: list[DeviceWrite] = field(default_factory=list)
+    restored: WriteReport = field(default_factory=WriteReport)
     modem_read: bool = False
     modem_links_left: int = 0
     """In-use Links to the removed Device the Modem held after the removal."""
     modem_restored: bool = False
     reconciled: PruneResult | None = None
     cleaned: clean_command.CleanResult | None = None
+    clean_declined: bool = False
     backup: Path | None = None
     iox_backup: Path | None = None
 
@@ -93,6 +94,12 @@ async def remove(
     prompt: Callable[[str], str] = input,
     progress: Callable[[str], None] = lambda message: None,
 ) -> RemoveResult:
+    """Remove the Device, as the module says.
+
+    Until the Device is removed (step 3), any failure stops the command. After
+    it, every step still runs: a failed Restore is reported, and HA is still
+    Reconciled, since the Controller no longer has the Device either way.
+    """
     if not rails.apply:
         with rails.modem_operation("remove"):
             planned = await _plan(iox, ha, name, repo=repo, ask=None, timeout=timeout, progress=progress)
@@ -109,50 +116,79 @@ async def remove(
             progress(f"Taking {membership.button} out of {membership.scene.name} ({membership.scene.address})")
             await iox.remove_from_scene(membership.button, membership.scene.address)
 
-        writable = ([] if planned.unresponsive else [device]) + list(planned.peers)  # 2
-        for target in writable:
-            progress(f"Writing the updates to {target.address} {target.name}")
-            try:
-                result.writes.append(await write_device(target, lambda t=target: iox.write_updates(t.primary), prompt))
-            except IoxError as error:
-                result.failed_writes.append(f"{target.address} {target.name}: {error}")
+        writing = ([] if planned.unresponsive else [device]) + list(planned.peers)  # 2
+        await write_updates_to(iox, writing, prompt, progress, result.writes)
 
-        progress(f"Removing {device.address} {device.name} from the Controller")  # 3
+        progress(f"Removing {device.label} from the Controller")  # 3
         await iox.remove_device(device.primary)
         network = await iox.network()
         if network.device(device.address) is not None:
             raise IoxError(f"IoX still has {device.address} after RemoveNode; nothing after step 3 was done")
 
-        peers = [peer for p in planned.peers if (peer := network.device(p.address)) is not None]  # 4
-        if peers:
-            result.audit = await audit_devices(
-                iox, network, peers, named=False, read_modem_links=False, timeout=timeout, prompt=prompt, progress=progress
-            )
-            for table in result.audit.tables:
-                if not (table.differences or table.stale) or (peer := network.device(table.owner)) is None:
-                    continue
-                progress(f"Restoring {peer.address} {peer.name}, which differs from the Controller")
-                result.restored.append(await write_device(peer, lambda p=peer: iox.restore_device(p.primary), prompt))
-        if read_modem_links:
-            modem = await iox.modem()
-            progress("Reading the Modem's Links (about 2 a second)")
-            left = [
-                link for link in await iox.modem_links(modem.address) if link.in_use and link.address == device.address
-            ]
-            result.modem_read, result.modem_links_left = True, len(left)
-            if left:
-                progress(f"The Modem still holds {len(left)} Links to {device.address}: Restoring the Modem")
-                await iox.restore_modem()
-                result.modem_restored = True
+        await _clean_peers_and_modem(iox, network, planned, result, read_modem_links, timeout, prompt, progress)  # 4
 
         progress("Reconciling HA: reloading the isy994 integration, then pruning")  # 5
         result.reconciled = await reconcile(iox, ha)
 
         if clean:  # 6
-            progress("Taking the Device's References out of live HA")
-            result.cleaned = await clean_command.apply(ha, planned.references, folder)
+            refreshed = await clean_command.refresh(ha, planned.references)
+            if refreshed.edits:
+                for line in clean_command.render(refreshed, cleaning=True):
+                    progress(line)
+                answer = prompt(f"Save these {len(refreshed.edits)} edits to live HA? Type yes to save them: ")
+                result.clean_declined = answer.strip().lower() != "yes"
+            if not result.clean_declined:
+                result.cleaned = await clean_command.save(ha, refreshed, folder)
         result.applied = True
     return result
+
+
+async def _clean_peers_and_modem(
+    iox: IoxClient,
+    network: Network,
+    planned: RemovePlan,
+    result: RemoveResult,
+    read_modem_links: bool,
+    timeout: float,
+    prompt: Callable[[str], str],
+    progress: Callable[[str], None],
+) -> None:
+    """Step 4: Restore the former Scene Peers that differ, and the Modem if it still links to the Device.
+
+    The Device is gone by now, so a failure here is reported and the rest still runs.
+    """
+    device = planned.device
+    peers = [peer for p in planned.peers if (peer := network.device(p.address)) is not None]
+    try:
+        if peers:
+            result.audit = await audit_devices(
+                iox, network, peers, named=False, read_modem_links=False, timeout=timeout, prompt=prompt, progress=progress
+            )
+    except IoxError as error:
+        result.restored.failures.append(f"the Link Audit of its former Scene Peers: {error}")
+    for table in result.audit.tables if result.audit else ():
+        if not (table.differences or table.stale) or (peer := network.device(table.owner)) is None:
+            continue
+        progress(f"Restoring {peer.label}, which differs from the Controller")
+        try:
+            result.restored.writes.append(
+                await write_device(peer, lambda clear, p=peer: iox.restore_device(p.primary, until_clear=clear), prompt)
+            )
+        except IoxError as error:
+            result.restored.failures.append(f"{peer.label}: {error}")
+    if not read_modem_links:
+        return
+    try:
+        modem = await iox.modem()
+        progress("Reading the Modem's Links (about 2 a second)")
+        left = [link for link in await iox.modem_links(modem.address) if link.in_use and link.address == device.address]
+        result.modem_read, result.modem_links_left = True, len(left)
+        if left:
+            progress(f"The Modem still holds {len(left)} Links to {device.address}: Restoring the Modem")
+            await iox.restore_modem()
+            result.modem_restored = True
+    except IoxError as error:
+        result.restored.failures.append(f"the Modem: {error}")
 
 
 async def _plan(
@@ -175,7 +211,7 @@ async def _plan(
     unresponsive, probed = None, True
     if device.battery and ask is None:
         probed = False
-    elif device.battery and hold_set(f"{device.address} {device.name}", ask, other="type u if it is gone").startswith("u"):
+    elif device.battery and hold_set(device.label, ask, other="type u if it is gone").startswith("u"):
         unresponsive = "the Administrator says it is gone"
     else:
         progress(f"Reading the Links of {device.address} {device.name} to see whether it answers")
@@ -219,7 +255,7 @@ def render(result: RemoveResult) -> str:
     sections = [f"{title} {device.address} {device.name}"]
 
     if plan.unresponsive:
-        sections.append(f"Unresponsive ({plan.unresponsive}): nothing is written to it; its peers and the Modem are still cleaned.")
+        sections.append(f"Unresponsive ({plan.unresponsive}): nothing is written to it; its Scene Peers and the Modem are still cleaned.")
     elif not plan.probed:
         sections.append("A Battery Device: with --apply, you will be asked to hold its Set button, or to say it is gone.")
 
@@ -228,18 +264,18 @@ def render(result: RemoveResult) -> str:
         f"   {m.button}  {'Controller' if m.controller else 'Responder'} in {m.scene.name} ({m.scene.address})"
         for m in plan.memberships
     ]
-    targets = ([] if plan.unresponsive else [device]) + list(plan.peers)
-    lines.append("2. Write the updates to " + (", ".join(f"{d.address} {d.name}" for d in targets) or "no Device"))
-    lines += [f"   {w.device.address} {w.device.name}: {_write_text(w)}" for w in result.writes if not w.written or w.pending]
-    lines += [f"   failed: {failure}" for failure in result.failed_writes]
+    writing = ([] if plan.unresponsive else [device]) + list(plan.peers)
+    lines.append("2. Write the updates to " + (", ".join(d.label for d in writing) or "no Device"))
+    lines += result.writes.lines("   ")
     lines.append(f"3. Remove {device.address} from the Controller")
     lines.append(
-        "4. Link Audit its former Scene peers and Restore each that differs; Restore the Modem if it still links to it"
+        "4. Link Audit its former Scene Peers and Restore each that differs; Restore the Modem if it still links to it"
     )
     if result.audit is not None:
-        lines += [f"   Unresponsive peer, not Restored: {u.device.address} {u.device.name}" for u in result.audit.unresponsive]
-        lines += [f"   Skipped peer: {s.device.address} {s.device.name}: {s.reason}" for s in result.audit.skipped]
-        lines += [f"   Restored {w.device.address} {w.device.name}" + _pending(w) for w in result.restored]
+        lines += [f"   Unresponsive peer, not Restored: {u.device.label}" for u in result.audit.unresponsive]
+        lines += [f"   Skipped peer: {s.device.label}: {s.reason}" for s in result.audit.skipped]
+    lines += [f"   Restored {w.device.label}" for w in result.restored.writes if w.written]
+    lines += result.restored.lines("   ")
     if result.applied:
         if not result.modem_read:
             lines.append("   The Modem's Links were not read (--no-modem-links); run `insteon audit` to check them")
@@ -251,7 +287,12 @@ def render(result: RemoveResult) -> str:
     if result.reconciled is not None:
         lines.append(f"   Pruned {len(result.reconciled.removed)} Stale HA Devices")
         lines += [f"   held: {d.name} ({', '.join(d.entity_ids)})" for d in result.reconciled.held]
-    lines.append("6. " + ("Take its References out of live HA" if result.cleaning else "References are listed only (no --clean)"))
+    lines.append(
+        "6. "
+        + ("Take its References out of live HA, after you confirm the diffs" if result.cleaning else "References are listed only (no --clean)")
+    )
+    if result.clean_declined:
+        lines.append("   Not confirmed: live HA was not edited")
     sections.append("\n".join(lines))
 
     sections.append("\n".join(clean_command.render(plan.references, cleaning=result.cleaning)))
@@ -281,13 +322,3 @@ def render(result: RemoveResult) -> str:
         flags = "--apply" + (" (with --clean)" if result.cleaning else "")
         sections.append(f"Dry run: nothing changed. Pass {flags} to remove it.")
     return "\n\n".join(sections) + "\n"
-
-
-def _write_text(write: DeviceWrite) -> str:
-    if not write.written:
-        return f"not written ({write.skipped}); its Pending Writes remain"
-    return "Pending Writes remain; hold its Set button and run `insteon restore` on it"
-
-
-def _pending(write: DeviceWrite) -> str:
-    return "" if write.written and not write.pending else f" ({_write_text(write)})"

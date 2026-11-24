@@ -22,10 +22,10 @@ from pathlib import Path
 
 from insteon.address import ButtonAddress
 from insteon.ha import HaClient, HaRegistry
-from insteon.iox import IoxClient, IoxError, Write
-from insteon.network import Device, Network, Scene
+from insteon.iox import IoxClient, Write
+from insteon.network import Device, Network
 from insteon.prune import PruneResult, reconcile
-from insteon.rails import Backup, DeviceWrite, HaRegistryBackup, IoxBackup, Rails, write_device
+from insteon.rails import Backup, HaRegistryBackup, IoxBackup, Rails, WriteReport, write_updates_to
 from insteon.resolve import ResolveError, ha_entity_ids, resolve_button, resolve_scene
 
 _FIRST_SCENE_ADDRESS = 10000
@@ -75,14 +75,14 @@ def delete(scene_name: str) -> Planner:
         return Change(
             f"Delete the Scene {scene.name} ({scene.address})",
             (lambda iox: iox.delete_scene(scene.address),),
-            _member_devices(network, scene),
+            _devices(network, [*scene.controllers, *scene.responders]),
             reconcile=True,
         )
 
     return planned
 
 
-def join(scene_name: str, button_name: str, *, controller: bool, registry: HaRegistry | None = None) -> Planner:
+def add_button(scene_name: str, button_name: str, *, controller: bool, registry: HaRegistry | None = None) -> Planner:
     def planned(network: Network) -> Change:
         scene = resolve_scene(scene_name, network)
         button = resolve_button(button_name, network, registry)
@@ -104,7 +104,7 @@ def join(scene_name: str, button_name: str, *, controller: bool, registry: HaReg
     return planned
 
 
-def leave(scene_name: str, button_name: str, *, registry: HaRegistry | None = None) -> Planner:
+def remove_button(scene_name: str, button_name: str, *, registry: HaRegistry | None = None) -> Planner:
     def planned(network: Network) -> Change:
         scene = resolve_scene(scene_name, network)
         button = resolve_button(button_name, network, registry)
@@ -167,8 +167,7 @@ def level(
 class SceneResult:
     change: Change
     applied: bool = False
-    writes: list[DeviceWrite] = field(default_factory=list)
-    failed_writes: list[str] = field(default_factory=list)
+    writes: WriteReport = field(default_factory=WriteReport)
     reconciled: PruneResult | None = None
     entity_ids: tuple[str, ...] = ()
     iox_backup: Path | None = None
@@ -194,12 +193,7 @@ async def scene(
         progress(change.summary)
         for call in change.calls:
             await call(iox)
-        for device in change.devices:
-            progress(f"Writing the updates to {device.address} {device.name}")
-            try:
-                result.writes.append(await write_device(device, lambda d=device: iox.write_updates(d.primary), prompt))
-            except IoxError as error:
-                result.failed_writes.append(f"{device.address} {device.name}: {error}")
+        await write_updates_to(iox, change.devices, prompt, progress, result.writes)
         if change.reconcile:
             progress("Reconciling HA: reloading the isy994 integration, then pruning")
             result.reconciled = await reconcile(iox, ha)
@@ -217,18 +211,13 @@ def render(result: SceneResult) -> str:
     if not result.applied:
         lines = [f"Would: {change.summary}"]
         if change.devices:
-            lines.append("Then write the updates to " + ", ".join(f"{d.address} {d.name}" for d in change.devices))
+            lines.append("Then write the updates to " + ", ".join(d.label for d in change.devices))
         if change.reconcile:
             lines.append("Then Reconcile HA: reload the isy994 integration, then prune.")
         lines.append("Dry run: nothing changed. Pass --apply to make the change.")
         return "\n".join(lines) + "\n"
     lines = [f"Done: {change.summary}"]
-    for write in result.writes:
-        if not write.written:
-            lines.append(f"  {write.device.address} {write.device.name}: not written ({write.skipped})")
-        elif write.pending:
-            lines.append(f"  {write.device.address} {write.device.name}: Pending Writes remain; hold Set and restore it")
-    lines += [f"  write failed: {failure}" for failure in result.failed_writes]
+    lines += result.writes.lines("  ")
     if result.reconciled is not None:
         lines.append(f"Reconciled HA: pruned {len(result.reconciled.removed)} Stale HA Devices.")
     if change.scene:
@@ -248,10 +237,6 @@ def _free_address(network: Network) -> str:
     if free is None:
         raise ResolveError("no free Scene address; give one with --address")
     return str(free)
-
-
-def _member_devices(network: Network, scene: Scene) -> tuple[Device, ...]:
-    return _devices(network, [*scene.controllers, *scene.responders])
 
 
 def _devices(network: Network, buttons: Sequence[ButtonAddress]) -> tuple[Device, ...]:

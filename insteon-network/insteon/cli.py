@@ -322,9 +322,9 @@ async def _scene(args: argparse.Namespace, private: Private) -> None:
         elif args.action == "delete":
             planner = scene_command.delete(args.scene)
         elif args.action == "add":
-            planner = scene_command.join(args.scene, args.button, controller=args.controller, registry=registry)
+            planner = scene_command.add_button(args.scene, args.button, controller=args.controller, registry=registry)
         elif args.action == "remove":
-            planner = scene_command.leave(args.scene, args.button, registry=registry)
+            planner = scene_command.remove_button(args.scene, args.button, registry=registry)
         else:
             planner = scene_command.level(
                 args.scene, args.button, args.percent, ramp=args.ramp, controller_name=args.from_button, registry=registry

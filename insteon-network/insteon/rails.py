@@ -26,13 +26,13 @@ import fcntl
 import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
 from insteon.ha import HaClient
-from insteon.iox import IoxFiles, Write
+from insteon.iox import IoxClient, IoxError, IoxFiles, Write
 from insteon.network import Device
 
 
@@ -157,16 +157,59 @@ class DeviceWrite:
     """IoX still holds Pending Writes for the Device afterwards."""
     skipped: str | None = None
 
+    @property
+    def outcome(self) -> str | None:
+        """What the Administrator still has to do, or None when the write went through."""
+        if not self.written:
+            return f"not written ({self.skipped}); its Pending Writes remain"
+        if self.pending:
+            return "Pending Writes remain; hold its Set button and run `insteon restore` on it"
+        return None
+
 
 async def write_device(
-    device: Device, write: Callable[[], Awaitable[Write]], prompt: Callable[[str], str]
+    device: Device, write: Callable[[bool], Awaitable[Write]], prompt: Callable[[str], str]
 ) -> DeviceWrite:
     """Run one write that IoX sends to `device`, prompting first for a Battery Device.
 
-    The write itself waits until IoX is no longer busy; then IoX's last word
-    on the Device's Pending Writes (`_3` WH or WD) tells whether they cleared.
+    `write` is called with whether to wait until the Device's Pending Writes
+    clear: only for a Battery Device, while it is in linking mode. For any
+    other Device the write waits until IoX is no longer busy. Either way,
+    IoX's last word on the Device's Pending Writes (`_3` WH or WD) tells
+    whether they cleared.
     """
-    if device.battery and hold_set(f"{device.address} {device.name}", prompt).startswith("s"):
+    if device.battery and hold_set(device.label, prompt).startswith("s"):
         return DeviceWrite(device, written=False, pending=True, skipped="a Battery Device; skipped at the prompt")
-    result = await write()
+    result = await write(device.battery)
     return DeviceWrite(device, written=True, pending=result.pending(device.address))
+
+
+@dataclass
+class WriteReport:
+    """Writing the updates to several Devices: how each went, and which failed."""
+
+    writes: list[DeviceWrite] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+
+    def lines(self, indent: str) -> list[str]:
+        """A line for each Device still needing something, and each failure."""
+        found = [f"{indent}{w.device.label}: {w.outcome}" for w in self.writes if w.outcome]
+        return found + [f"{indent}failed: {failure}" for failure in self.failures]
+
+
+async def write_updates_to(
+    iox: IoxClient,
+    devices: Sequence[Device],
+    prompt: Callable[[str], str],
+    progress: Callable[[str], None],
+    report: WriteReport,
+) -> None:
+    """Write the updates to each Device in turn. A Device that fails is reported, and the rest still written."""
+    for device in devices:
+        progress(f"Writing the updates to {device.label}")
+        try:
+            report.writes.append(
+                await write_device(device, lambda clear, d=device: iox.write_updates(d.primary, until_clear=clear), prompt)
+            )
+        except IoxError as error:
+            report.failures.append(f"{device.label}: {error}")

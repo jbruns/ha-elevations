@@ -107,7 +107,7 @@ async def test_applying_leaves_scenes_writes_removes_then_restores_the_peer_and_
         ("RestoreDeviceFromNode", {"node": "11 22 33 1", "flag": "0"}),
         ("ReplaceModem", {}),
     ]
-    assert [w.device.name for w in result.restored] == ["Example Keypad"]
+    assert [w.device.name for w in result.restored.writes] == ["Example Keypad"]
     assert result.modem_links_left == 1
 
 
@@ -241,7 +241,7 @@ async def test_clean_shows_each_edit_as_a_diff_in_a_dry_run_and_edits_nothing(
 async def test_clean_edits_live_ha_after_the_reconcile_and_backs_up_each_config_first(
     iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, network: FakeIox, referenced: FakeHa, tmp_path: Path, repo: Path
 ) -> None:
-    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True, clean=True)
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True, clean=True, answers=["yes"])
 
     writes = referenced.writes()
     last_prune = max(i for i, c in enumerate(writes) if c["type"] == "config/device_registry/remove_config_entry")
@@ -254,3 +254,24 @@ async def test_clean_edits_live_ha_after_the_reconcile_and_backs_up_each_config_
     saved = json.loads(result.cleaned.backup.read_text())
     assert [entry["key"] for entry in saved] == ["automation.example_dimmer_level", "example-board"]
     assert "light.example_dimmer" in json.dumps(saved)
+
+
+async def test_clean_edits_nothing_in_live_ha_unless_the_administrator_confirms_the_diffs(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, network: FakeIox, referenced: FakeHa, tmp_path: Path, repo: Path
+) -> None:
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True, clean=True, answers=["n"])
+
+    assert not [c for c in referenced.writes() if c["type"] in ("rest POST", "lovelace/config/save")]
+    assert "Not confirmed: live HA was not edited" in render(result)
+
+
+async def test_a_failed_peer_restore_after_the_removal_is_reported_and_ha_is_still_reconciled(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, network: FakeIox, fake_ha: FakeHa, tmp_path: Path, repo: Path
+) -> None:
+    network.refuse.add("RestoreDeviceFromNode")
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+
+    assert ("ReplaceModem", {}) in network.writes()
+    assert "dimmer" in fake_ha.removed()
+    assert "failed: 11.22.33 Example Keypad: SOAP RestoreDevice: HTTP 500" in render(result)

@@ -102,7 +102,10 @@ class FakeIox:
     """Write elements IoX answers with HTTP 500."""
     pending: set[str] = field(default_factory=set)
     """Nodes IoX reports Pending Writes for (`_3` WH) after a write to them, rather than writing (`_3` WD)."""
+    written_later: set[str] = field(default_factory=set)
+    """Nodes IoX holds Pending Writes for at first (`_3` WH), then writes (`_3` WD) just after the call returns."""
     _sockets: list[web.WebSocketResponse] = field(default_factory=list)
+    _later: list[asyncio.Future[None]] = field(default_factory=list)
     _stop: asyncio.Event = field(default_factory=asyncio.Event)
 
     def _authorised(self, request: web.Request) -> bool:
@@ -191,10 +194,18 @@ class FakeIox:
         if element in self.refuse:
             return web.Response(status=500)
         node = params.get("node") or params.get("id") or ""
-        written = [_event("_3", "WH" if node in self.pending else "WD", node)] if node else []
+        held = node in self.pending or node in self.written_later
+        written = [_event("_3", "WH" if held else "WD", node)] if node else []
         await self._broadcast([_event("_5", "1"), *written])
         self._change(element, params)
         await self._broadcast([_event("_5", "0")])
+        if node in self.written_later:
+
+            async def write_later() -> None:
+                await asyncio.sleep(0.05)
+                await self._broadcast([_event("_5", "1"), _event("_3", "WD", node), _event("_5", "0")])
+
+            self._later.append(asyncio.ensure_future(write_later()))
         return web.Response(
             text='<?xml version="1.0" encoding="UTF-8"?><s:Envelope><s:Body><UDIDefaultResponse><status>200</status></UDIDefaultResponse></s:Body></s:Envelope>',
             content_type="text/xml",

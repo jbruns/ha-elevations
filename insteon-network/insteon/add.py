@@ -73,7 +73,7 @@ async def add(
                 result.skipped = True
                 return result
         progress(f"Adding {address} {name}" + (", building Scenes from its Links" if from_links else ", erasing its Links"))
-        write = await iox.add_device(address, name, flag=FROM_LINKS if from_links else ERASE_LINKS)
+        write = await iox.add_device(address, name, flag=FROM_LINKS if from_links else ERASE_LINKS, until_clear=battery)
         network = await iox.network()
         result.device = network.device(address)
         if result.device is None:
@@ -108,9 +108,14 @@ def render(result: AddResult) -> str:
         return f"Stopped at the prompt: {result.address} was not added.\n"
     device = result.device
     assert device is not None
-    lines = [f"Added {device.address} {device.name} ({device.model}, {len(device.buttons)} Buttons), {how}."]
+    lines = [f"Added {device.label} ({device.model}, {len(device.buttons)} Buttons), {how}."]
     if result.pending:
         lines.append("  Pending Writes remain: hold its Set button and run `insteon restore` on it.")
+    elif device.battery and not result.battery:
+        lines.append(
+            "  It is a Battery Device, so IoX may hold Pending Writes for it: hold its Set button and run "
+            "`insteon restore` on it."
+        )
     lines.append("Its HA entities: " + (", ".join(result.entity_ids) or "none yet; check the isy994 integration"))
     if result.iox_backup is not None:
         lines.append(f"IoX backup: {result.iox_backup}")

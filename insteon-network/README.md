@@ -104,23 +104,24 @@ Restores a Device's Links (`RestoreDevice`) or the Modem's (`ReplaceModem`) from
 Removes a Device and cleans up after it. In order:
 
 1. Takes each of its Buttons out of each Scene (`RemoveFromGroup`).
-2. Writes the updates (`WriteDeviceUpdates`) to it and to each of its former Scene peers: the other Devices in those Scenes.
+2. Writes the updates (`WriteDeviceUpdates`) to it and to each of its former Scene Peers: the other Devices in those Scenes. A Device whose write fails is reported, and the rest still written.
 3. Removes it (`RemoveNode`).
-4. Runs a Link Audit on the former Scene peers and Restores each that differs. Reads the Modem's Links and Restores the Modem if it still holds a Link to the removed Device. `--no-modem-links` skips that read.
+4. Runs a Link Audit on the former Scene Peers and Restores each that differs. Reads the Modem's Links, a few minutes for a full table, and if the Modem still holds a Link to the removed Device, Restores the Modem (`ReplaceModem`), which takes minutes more. `--no-modem-links` skips both.
 5. Reconciles HA: reloads the isy994 integration, then removes the Stale HA Devices, as `prune` does.
-6. With `--clean`, takes the Device's References out of live HA.
+6. With `--clean`, prints the diffs to live HA and asks before saving them.
 
-First, it reads the Device's Links, as `audit` does, even in a dry run. A Device that does not answer is an Unresponsive Device: step 2 writes nothing to it, but its peers and the Modem are still cleaned. For a Battery Device, the tool asks the Administrator to hold its Set button, or to type `u` if it is gone. Battery peers are skipped in step 4; audit them by name afterwards.
+Until step 3, any failure stops the command. After it, each step still runs: the Device is gone either way, so a failed Restore is reported and HA is still Reconciled.
 
-References are always listed: live HA's as the edits `--clean` would make or as hand edits, and the repo's, which are never edited. With `--clean`, a dry run prints each edit as a diff. `--clean --apply` saves them through HA's config API, never `.storage`, after the Reconcile:
+First, it reads the Device's Links, as `audit` does, even in a dry run. A Device that does not answer is an Unresponsive Device: step 2 writes nothing to it, but its peers and the Modem are still cleaned. For a Battery Device, the tool asks the Administrator to hold its Set button, or to type `u` if it is gone. Battery Scene Peers are skipped in step 4; audit them by name afterwards.
 
-- An entity is taken out of each list that names it. A trigger, condition, action, card or row left naming nothing is deleted, and so is a stack or card it leaves empty.
-- An automation, script, scene or dashboard is never deleted. Nor is a branch whose condition goes while its actions stay, or anything named in a template. Those are left for a hand edit, and so are groups, persons, helpers, YAML-defined items and YAML dashboards.
-- An automation's own conditions may be left empty, which makes it run more often. Read the diff.
+References are always listed: live HA's as the edits `--clean` would make or as hand edits, and the repo's, which are never edited. With `--clean`, a dry run prints each edit as a diff. `--clean --apply` reads each config again after the Reconcile, prints the diffs again, and saves them through HA's config API, never `.storage`, only once the Administrator types `yes`:
+
+- An entity is taken out of each list that names it. A trigger, action, card or row left naming nothing is deleted, and so is a stack or card it leaves empty.
+- An automation, script, scene or dashboard is never deleted. Nor is a condition, since dropping one changes when something runs, nor anything named in a template. Those are left for a hand edit, and so are groups, persons, helpers, YAML-defined items and YAML dashboards.
 
 ### `add ADDRESS NAME`
 
-Adds a Device by its Insteon Address (`AddNode`), erasing its Links. `--from-links` keeps them instead, and has IoX add the Devices they name and build Scenes from them. `--battery` prompts to hold the Set button first; a new Device that ignores the Modem may need that too. Then it Reconciles HA and prints the new entity IDs.
+Adds a Device by its Insteon Address (`AddNode`), erasing its Links. `--from-links` keeps them instead, and has IoX add the Devices they name and build Scenes from them. `--battery` prompts to hold the Set button first; a new Device that ignores the Modem may need that too. Added without it, a Battery Device is flagged, since IoX may hold Pending Writes for it. Then it Reconciles HA and prints the new entity IDs.
 
 ### `scene`
 
@@ -145,7 +146,8 @@ Every command that changes something follows these rails (`insteon/rails.py`):
   - Home Assistant registries: the device registry, entity registry and isy994 config entries, as JSON, in `<private>/insteon-backups/<time>-<command>/`. This is a record to re-create from by hand, not a Home Assistant backup.
   - Home Assistant config: `remove --clean` writes each automation, script, scene and dashboard config it is about to save, as read just before, to `ha-config.json` in the same folder. To undo an edit, POST that config back through HA's config API, or paste it into the editor. A full Home Assistant backup isn't taken: it is slow, and the edits it would cover are these.
 - **One Modem operation at a time**: each write waits until IoX reports it is no longer busy.
-- **Battery Devices**: the tool prompts the Administrator to hold the Set button before writing, one Device at a time. Then it waits for IoX to finish and reports any Pending Writes left.
+- **Battery Devices**: the tool prompts the Administrator to hold the Set button before writing, one Device at a time. Then it waits on the event stream until IoX writes the Pending Writes, up to the 4 minutes the Device stays in linking mode, and reports any left.
+- The commands that change IoX need the SSH login even for a dry run, so a dry run shows the IoX backup can be taken.
 
 ## Code
 

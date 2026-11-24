@@ -29,7 +29,6 @@ def test_a_trigger_left_with_no_entity_is_deleted_and_the_others_stay() -> None:
             {"trigger": "device", "device_id": "dimmer", "domain": "isy994", "type": "turned_on"},
             {"trigger": "state", "entity_id": "light.example_relay"},
         ],
-        "conditions": [{"condition": "state", "entity_id": "light.example_dimmer", "state": "on"}],
         "actions": [
             {"action": "light.turn_on", "target": {"entity_id": "light.example_dimmer"}, "data": {"brightness": 5}},
             {"action": "light.turn_on", "target": {"entity_id": "light.example_bulb"}},
@@ -41,9 +40,24 @@ def test_a_trigger_left_with_no_entity_is_deleted_and_the_others_stay() -> None:
     assert result.config == {
         "id": "1",
         "triggers": [{"trigger": "state", "entity_id": "light.example_relay"}],
-        "conditions": [],
         "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.example_bulb"}}],
     }
+
+
+def test_a_condition_is_never_dropped_since_that_changes_when_the_automation_runs() -> None:
+    config = {
+        "id": "1",
+        "triggers": [{"trigger": "state", "entity_id": "light.example_relay"}],
+        "conditions": [
+            {"condition": "or", "conditions": [{"condition": "state", "entity_id": "light.example_dimmer", "state": "on"}]}
+        ],
+        "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.example_bulb"}}],
+    }
+
+    result = stripped(config)
+
+    assert result.config is None
+    assert "drop the condition at conditions[0].conditions[0]" in result.refusal
 
 
 def test_an_automation_is_never_deleted_even_when_every_trigger_goes() -> None:
@@ -74,7 +88,7 @@ def test_a_branch_whose_condition_goes_is_left_for_a_hand_edit() -> None:
     result = stripped(config)
 
     assert result.config is None
-    assert "actions[0].if" in result.refusal and "then" in result.refusal
+    assert "actions[0].if" in result.refusal
 
 
 def test_a_template_naming_the_entity_is_left_for_a_hand_edit() -> None:

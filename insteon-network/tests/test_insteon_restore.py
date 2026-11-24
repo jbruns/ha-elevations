@@ -9,6 +9,12 @@ from insteon.rails import IoxBackup, LockHeld, Rails, lock
 from insteon.restore import RestoreResult, render, restore
 
 
+@pytest.fixture(autouse=True)
+def short_battery_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Battery Device stays in linking mode for about four minutes; the tests wait half a second."""
+    monkeypatch.setattr("insteon.iox.BATTERY_WINDOW", 0.5)
+
+
 def backup(ssh: SshEndpoint, tmp_path: Path, ssh_password: str = SSH_PASSWORD) -> IoxBackup:
     files = IoxFiles("127.0.0.1", SSH_USER, ssh_password, port=ssh.port, known_hosts=ssh.known_hosts)
     return IoxBackup(files, tmp_path / "eisy" / "backups")
@@ -107,3 +113,14 @@ async def test_pending_writes_left_on_a_battery_device_are_reported(
     result, asked = await run(iox_url, eisy_ssh, tmp_path, "Example Door Sensor", apply=True)
 
     assert "Pending Writes remain on 5A.5B.5C Example Door Sensor" in render(result)
+
+
+async def test_the_restore_of_a_battery_device_waits_until_its_pending_writes_clear(
+    iox_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, tmp_path: Path
+) -> None:
+    fake_iox.written_later.add("5A 5B 5C 1")
+
+    result, asked = await run(iox_url, eisy_ssh, tmp_path, "Example Door Sensor", apply=True)
+
+    assert result.write is not None and result.write.written and not result.write.pending
+    assert "Pending Writes remain" not in render(result)

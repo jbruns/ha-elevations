@@ -27,7 +27,7 @@ from insteon.address import InsteonAddress
 from insteon.ha import HaRegistry
 from insteon.iox import DEVICE_READ_TIMEOUT, DeviceUnresponsive, IoxClient
 from insteon.network import Device, Link, Modem, Network, Scene
-from insteon.rails import Rails
+from insteon.rails import Rails, hold_set
 from insteon.resolve import resolve_device
 
 DEFAULT_TIMEOUT = DEVICE_READ_TIMEOUT
@@ -163,11 +163,7 @@ async def audit_devices(
     for number, device in enumerate(to_read, 1):
         label = f"[{number}/{len(to_read)}] {device.address} {device.name}"
         if device.battery:
-            answer = prompt(
-                f"{label} is a Battery Device. Hold its Set button until it enters linking mode, "
-                "then press Enter (or type s to skip it): "
-            )
-            if answer.strip().lower().startswith("s"):
+            if hold_set(label, prompt).startswith("s"):
                 skipped.append(Skipped(device, "a Battery Device; skipped at the prompt"))
                 continue
         progress(f"{label}: reading its Links")
