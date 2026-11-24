@@ -18,12 +18,12 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from insteon.address import InsteonAddress
-from insteon.table_audit import Difference, StaleLink, TableAudit, audit_table, in_use
 from insteon.ha import HaRegistry
 from insteon.iox import DEVICE_READ_TIMEOUT, DeviceUnresponsive, IoxClient
 from insteon.network import Device, Link, Modem, Network, Scene
 from insteon.rails import Rails, hold_set
 from insteon.resolve import resolve_device
+from insteon.table_audit import Difference, StaleLink, TableAudit, audit_table, in_use
 
 DEFAULT_TIMEOUT = DEVICE_READ_TIMEOUT
 

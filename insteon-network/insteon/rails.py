@@ -32,10 +32,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from insteon.table_audit import audit_table
 from insteon.ha import HaClient
 from insteon.iox import DeviceUnresponsive, IoxClient, IoxError, IoxFiles, Write
 from insteon.network import Device
+from insteon.table_audit import audit_table
 
 
 class LockHeld(RuntimeError):
