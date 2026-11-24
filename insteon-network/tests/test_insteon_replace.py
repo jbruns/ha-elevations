@@ -407,3 +407,16 @@ async def test_after_a_replace_a_later_reload_keeps_the_ids_and_a_returning_old_
 
     assert entity(replaceable, "light.example_dimmer")["unique_id"] == f"{UUID}_7A 7B 7C 1"
     assert entity(replaceable, "light.example_dimmer_2")["unique_id"] == f"{UUID}_AA BB CC 1"
+
+
+async def test_a_failed_reload_says_the_old_entities_are_still_there_and_to_resume(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, replaceable: FakeHa, tmp_path: Path, repo: Path
+) -> None:
+    replaceable.refuse = {"call_service"}
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+
+    assert entity(replaceable, "light.example_dimmer") is not None
+    text = render(result)
+    assert "so AA.BB.CC's entities are still in HA: run this again with --resume" in text
+    assert "Rename these by hand" not in text

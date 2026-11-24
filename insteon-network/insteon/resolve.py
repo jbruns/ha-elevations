@@ -89,13 +89,11 @@ def ha_entity_ids(target: Device | Scene, network: Network, registry: HaRegistry
     for entity in registry.entities:
         if entity.get("platform") != DOMAIN:
             continue
-        suffix = controller_suffix(str(entity.get("unique_id", "")), network.uuid)
-        if suffix is None:
-            continue
         if isinstance(target, Scene):
-            matches = suffix.split("_", 1)[0] == target.address
+            suffix = controller_suffix(str(entity.get("unique_id", "")), network.uuid)
+            matches = suffix is not None and suffix.split("_", 1)[0] == target.address
         else:
-            place = button_of(entity, network.uuid)
+            place = place_of(entity, network.uuid)
             matches = place is not None and place.button.device == target.address
         if matches:
             found.append(str(entity["entity_id"]))
@@ -104,14 +102,15 @@ def ha_entity_ids(target: Device | Scene, network: Network, registry: HaRegistry
 
 @dataclass(frozen=True)
 class EntityPlace:
-    """Where an isy994 entity sits on a Device: its Button, and the rest of its unique ID (`OL` in `..._OL`)."""
+    """Where an isy994 entity sits: its domain, its Button, and the rest of its unique ID (`OL` in `..._OL`)."""
 
+    domain: str
     button: ButtonAddress
     suffix: str
 
 
-def button_of(entity: dict[str, Any], uuid: str) -> EntityPlace | None:
-    """The Button an isy994 entity belongs to, from its unique ID `<uuid>_AA BB CC 1[_OL]`.
+def place_of(entity: dict[str, Any], uuid: str) -> EntityPlace | None:
+    """Where an isy994 entity sits, from its ID and its unique ID `<uuid>_AA BB CC 1[_OL]`.
 
     None for a Scene's switch, a variable, or another Controller's entity.
     Button addresses hold spaces, never underscores, so the first `_` ends it.
@@ -119,7 +118,9 @@ def button_of(entity: dict[str, Any], uuid: str) -> EntityPlace | None:
     suffix = controller_suffix(str(entity.get("unique_id", "")), uuid)
     address, _, rest = (suffix or "").partition("_")
     button = ButtonAddress.try_parse(address)
-    return EntityPlace(button, rest) if button is not None else None
+    if button is None:
+        return None
+    return EntityPlace(str(entity.get("entity_id", "")).split(".", 1)[0], button, rest)
 
 
 def device_address(text: str) -> InsteonAddress | None:

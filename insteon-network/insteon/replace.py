@@ -55,10 +55,10 @@ from insteon.address import InsteonAddress
 from insteon.ha import DOMAIN, HaClient, HaError, HaRegistry
 from insteon.iox import IoxClient, IoxError
 from insteon.network import Device, Network
-from insteon.prune import PruneResult, reconcile
+from insteon.prune import PruneResult, reload_isy994, remove_stale
 from insteon.rails import DeviceWrite, HaRegistryBackup, IoxBackup, Rails, write_device
-from insteon.refs import find_mentions, ha_device_ids
-from insteon.resolve import ResolveError, button_of, device_address, resolve_device
+from insteon.refs import find_mentions, ha_device_ids, ha_device_ids_at
+from insteon.resolve import EntityPlace, ResolveError, device_address, place_of, resolve_device
 
 # What an entity rename carries over, as `config/entity_registry/update` takes them.
 _CARRIED = ("name", "icon", "area_id", "labels", "aliases")
@@ -72,11 +72,18 @@ RENAMES_FILE = "replace-renames.json"
 
 @dataclass(frozen=True, order=True)
 class Place:
-    """Where an isy994 entity sits on its Device: domain, Button number and the rest of its unique ID."""
+    """Where an isy994 entity sits on whichever Device it belongs to: domain, Button number, the rest of its unique ID.
+
+    OLD's and NEW's entities for the same Button and kind have the same Place.
+    """
 
     domain: str
     button: int
     suffix: str
+
+    @classmethod
+    def of(cls, place: EntityPlace) -> Place:
+        return cls(place.domain, place.button.button, place.suffix)
 
 
 @dataclass(frozen=True)
@@ -217,10 +224,11 @@ async def replace(
 
         step = _Step(ha, plan, result, progress)
         result.renames_file = _save_renames(folder, plan)  # 3
-        result.reconciling = True
         try:
             progress("Reconciling HA: reloading the isy994 integration, then pruning")
-            result.reconciled = await reconcile(iox, ha)
+            await reload_isy994(ha)
+            result.reconciling = True
+            result.reconciled = await remove_stale(iox, ha)
             registry = await ha.registry()  # 4
             problem = _blocked(plan, registry, await ha.entity_ids_with_state())
             if problem:
@@ -229,7 +237,11 @@ async def replace(
             await _rename(step, registry)
             await _carry_device(step)  # 5
         except (HaError, IoxError) as error:
-            result.stopped = f"Reconciling HA failed: {error}"
+            result.stopped = f"Reconciling HA failed: {error}" + (
+                ""
+                if result.reconciling
+                else f". The reload did not run, so {old.address}'s entities are still in HA: run this again with --resume"
+            )
     return result
 
 
@@ -406,13 +418,12 @@ def _resume_old(text: str, network: Network, registry: HaRegistry) -> Device:
         raise ResolveError(f"with --resume, give OLD as an Insteon Address or an entity ID, not {text!r}")
     if (device := network.device(address)) is not None:
         raise ResolveError(f"the Controller still has {device.label}, so its Replace is not done; run without --resume")
-    gone = _gone(address, "")
     if not _isy994_entities(registry, network.uuid, address):
         raise ResolveError(
             f"HA has no entities for {address} any more, so there are no old IDs to keep. The backup folder of the "
             f"run that ran IoX's Replace holds them (ha-entities.json, {RENAMES_FILE}); rename by hand"
         )
-    names = [HaRegistry.device_name(d) for i in ha_device_ids(gone, network, registry) if (d := registry.device(i))]
+    names = [HaRegistry.device_name(d) for i in ha_device_ids_at(address, network, registry) if (d := registry.device(i))]
     return _gone(address, names[0] if names else "")
 
 
@@ -426,7 +437,7 @@ def _address_in(text: str, network: Network, registry: HaRegistry) -> InsteonAdd
     if (address := device_address(text.strip())) is not None:
         return address
     entity = registry.isy994_entity(text.strip())
-    place = button_of(entity, network.uuid) if entity else None
+    place = place_of(entity, network.uuid) if entity else None
     return place.button.device if place else None
 
 
@@ -434,10 +445,9 @@ def _isy994_entities(registry: HaRegistry, uuid: str, address: InsteonAddress) -
     """The isy994 entities of one Device's Buttons, by their place on it."""
     found = {}
     for entity in registry.entities:
-        place = button_of(entity, uuid) if entity.get("platform") == DOMAIN else None
+        place = place_of(entity, uuid) if entity.get("platform") == DOMAIN else None
         if place is not None and place.button.device == address:
-            domain = str(entity.get("entity_id", "")).split(".", 1)[0]
-            found[Place(domain, place.button.button, place.suffix)] = entity
+            found[Place.of(place)] = entity
     return found
 
 
