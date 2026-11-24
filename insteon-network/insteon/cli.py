@@ -126,6 +126,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     replace.add_argument("old", metavar="OLD", help="the Device to replace: Insteon Address, IoX name or HA entity ID")
     replace.add_argument("new", metavar="NEW", help="the Device replacing it, already added to IoX and HA")
+    replace.add_argument(
+        "--resume", action="store_true", help="IoX's Replace has already run and OLD is gone from it: only Reconcile HA"
+    )
     replace.add_argument("--apply", action="store_true", help=apply_help)
     replace.add_argument(
         "--repo", type=Path, default=REPO, help="the checkout whose References to list (default: %(default)s)"
@@ -184,7 +187,8 @@ async def run(argv: Sequence[str] | None = None) -> int:
         elif args.command == "add":
             await _add(args, private)
         elif args.command == "replace":
-            await _replace(args, private)
+            if not await _replace(args, private):
+                return 1
         elif args.command == "scene":
             await _scene(args, private)
     except (ConfigError, IoxError, HaError, ResolveError, LockHeld, refs_command.RepoError) as error:
@@ -363,13 +367,24 @@ async def _add(args: argparse.Namespace, private: Private) -> None:
     print(add_command.render(result), end="")
 
 
-async def _replace(args: argparse.Namespace, private: Private) -> None:
+async def _replace(args: argparse.Namespace, private: Private) -> bool:
+    """Whether it finished, or was a dry run."""
     backup = _iox_backup(private)
     async with _iox(private) as iox, _ha(private, args) as ha:
         result = await replace_command.replace(
-            iox, ha, _rails(private, args.apply), backup, args.old, args.new, repo=args.repo, prompt=_ask, progress=_progress
+            iox,
+            ha,
+            _rails(private, args.apply),
+            backup,
+            args.old,
+            args.new,
+            repo=args.repo,
+            resume=args.resume,
+            prompt=_ask,
+            progress=_progress,
         )
     print(replace_command.render(result), end="")
+    return result.finished or not args.apply
 
 
 async def _scene(args: argparse.Namespace, private: Private) -> None:

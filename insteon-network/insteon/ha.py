@@ -77,6 +77,11 @@ class HaRegistry:
     def device(self, device_id: str | None) -> dict[str, Any] | None:
         return next((device for device in self.devices if device.get("id") == device_id), None)
 
+    @staticmethod
+    def device_name(device: dict[str, Any]) -> str:
+        """The name HA shows for a device: the Administrator's, else the integration's."""
+        return str(device.get("name_by_user") or device.get("name") or "")
+
     def entities_of(self, device_id: str) -> list[dict[str, Any]]:
         return [entity for entity in self.entities if entity.get("device_id") == device_id]
 
@@ -280,6 +285,10 @@ class HaClient:
         """Save an automation, script or scene through HA's config API, which reloads it."""
         key = entity_id.split(".", 1)[1] if kind == "script" else config["id"]
         await self.rest("POST", f"config/{kind}/config/{key}", config)
+
+    async def entity_ids_with_state(self) -> frozenset[str]:
+        """Every entity ID in HA's state machine. HA refuses to rename an entity to one of these."""
+        return frozenset(str(s.get("entity_id")) for s in await self.call("get_states"))
 
     async def state(self, entity_id: str) -> dict[str, Any] | None:
         return next((s for s in await self.call("get_states") if s.get("entity_id") == entity_id), None)

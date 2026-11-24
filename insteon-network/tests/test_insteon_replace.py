@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -44,8 +45,8 @@ def new_entity(entity_id: str, unique_suffix: str, **fields: Any) -> dict[str, A
 def replaceable(fake_iox: FakeIox, fake_ha: FakeHa) -> FakeHa:
     """The Dimmer is to be replaced by the new Dimmer, which HA already has entities for.
 
-    The old entities carry the Administrator's settings; the reload drops them
-    once IoX no longer has the old Dimmer.
+    The old entities carry the Administrator's settings. HA's reload follows
+    the fake Controller: it drops them once IoX no longer has the old Dimmer.
     """
     add_new_device(fake_iox, NEW_DIMMER)
     for entity in fake_ha.entities:
@@ -64,7 +65,7 @@ def replaceable(fake_iox: FakeIox, fake_ha: FakeHa) -> FakeHa:
         new_entity("number.example_new_dimmer_on_level", "7A 7B 7C 1_OL", disabled_by="integration",
                    original_name="Example New Dimmer On Level"),
     ]
-    fake_ha.reload_drops = set(OLD_ENTITIES)
+    fake_ha.controller = fake_iox.node_addresses
     return fake_ha
 
 
@@ -79,7 +80,7 @@ def repo(tmp_path: Path) -> Path:
 
 async def run(
     iox_url: str, ha_url: str, ssh: SshEndpoint, tmp_path: Path, repo: Path, old: str = "AA.BB.CC", new: str = "7A.7B.7C",
-    *, apply: bool, answers: list[str] | None = None,
+    *, apply: bool, answers: list[str] | None = None, **options: Any,
 ) -> ReplaceResult:
     files = IoxFiles("127.0.0.1", SSH_USER, SSH_PASSWORD, port=ssh.port, known_hosts=ssh.known_hosts)
     rails = Rails(apply=apply, lock_path=tmp_path / "insteon.lock", backup_root=tmp_path / "insteon-backups")
@@ -87,7 +88,7 @@ async def run(
     async with IoxClient(iox_url, USER, PASSWORD) as iox, HaClient(ha_url, TOKEN) as ha:
         return await replace(
             iox, ha, rails, IoxBackup(files, tmp_path / "eisy" / "backups"), old, new, repo=repo,
-            prompt=lambda message: replies.pop(0) if replies else "",
+            prompt=lambda message: replies.pop(0) if replies else "", **options,
         )
 
 
@@ -186,7 +187,7 @@ def keypad(fake_iox: FakeIox, fake_ha: FakeHa) -> FakeHa:
         new_entity("number.example_new_keypad_on_level", "7A 7B 7C 1_OL"),
         new_entity("event.example_new_keypad_a", "7A 7B 7C 3_button"),
     ]
-    fake_ha.reload_drops = set(OLD_ENTITIES)
+    fake_ha.controller = fake_iox.node_addresses
     return fake_ha
 
 
@@ -228,7 +229,7 @@ async def test_ha_is_not_touched_when_iox_still_has_the_old_device_after_the_rep
     assert "still has AA.BB.CC; HA was not changed" in render(result)
 
 
-async def test_once_iox_no_longer_has_the_old_device_a_second_run_only_reconciles_ha(
+async def test_once_iox_no_longer_has_the_old_device_resume_only_reconciles_ha(
     iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, replaceable: FakeHa, tmp_path: Path, repo: Path
 ) -> None:
     fake_iox.replace_keeps_old = True
@@ -236,18 +237,30 @@ async def test_once_iox_no_longer_has_the_old_device_a_second_run_only_reconcile
     fake_iox.replace_keeps_old = False
     fake_iox._change(*REPLACES)  # IoX finishes the Replace, as after a reboot
 
-    dry = render(await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=False))
-    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+    with pytest.raises(ResolveError, match="pass --resume to Reconcile HA only"):
+        await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=False)
+    dry = render(await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=False, resume=True))
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True, resume=True)
 
-    assert "IoX's Replace: already done" in dry
+    assert "IoX's Replace: already done (--resume)" in dry
     assert fake_iox.writes() == [REPLACES]
     assert entity(replaceable, "light.example_dimmer")["unique_id"] == f"{UUID}_7A 7B 7C 1"
-    assert result.stopped is None
+    assert result.finished
+
+
+async def test_resume_refuses_while_iox_still_has_the_old_device(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, replaceable: FakeHa, tmp_path: Path, repo: Path
+) -> None:
+    with pytest.raises(ResolveError, match="still has AA.BB.CC Example Dimmer, so its Replace is not done"):
+        await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True, resume=True)
+
+    assert fake_iox.writes() == [] and replaceable.writes() == []
 
 
 async def test_nothing_is_renamed_when_an_old_id_is_still_taken_after_the_reload(
     iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, replaceable: FakeHa, tmp_path: Path, repo: Path
 ) -> None:
+    replaceable.controller = None  # a reload that removes only the old light
     replaceable.reload_drops = {"light.example_dimmer"}
 
     result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
@@ -350,3 +363,47 @@ async def test_a_failed_rename_is_reported_and_the_rest_still_run(
     assert [r.entity_id for r in result.renamed] == ["number.example_dimmer_on_level"]
     assert "failed: light.example_new_dimmer -> light.example_dimmer: config/entity_registry/update" in render(result)
     assert ("config/device_registry/update", "new-dimmer") in [(c["type"], c.get("device_id")) for c in replaceable.writes()]
+    assert not result.finished
+    text = render(result)
+    assert text.startswith("Did not finish replacing")
+    assert "Rename these by hand, in Settings > Entities, to keep the References:\n  light.example_new_dimmer -> light.example_dimmer\n" in text
+
+
+async def test_an_old_id_with_a_state_left_after_the_reload_stops_the_renames(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, replaceable: FakeHa, tmp_path: Path, repo: Path
+) -> None:
+    replaceable.extra_states = {"number.example_dimmer_on_level"}
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+
+    assert not [c for c in replaceable.writes() if c["type"] == "config/entity_registry/update"]
+    assert "number.example_dimmer_on_level still has a state in HA after the reload" in render(result)
+
+
+async def test_a_failure_after_the_reload_prints_and_saves_the_renames_still_to_make(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, replaceable: FakeHa, tmp_path: Path, repo: Path
+) -> None:
+    replaceable.refuse = {"config/device_registry/remove_config_entry"}
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+
+    assert entity(replaceable, "light.example_dimmer") is None  # the reload removed the old entities
+    text = render(result)
+    assert "Stopped: Reconciling HA failed: config/device_registry/remove_config_entry" in text
+    assert "light.example_new_dimmer -> light.example_dimmer" in text.split("Rename these by hand")[1]
+    assert f"The old entities' settings: {result.renames_file}" in text
+    saved = json.loads(result.renames_file.read_text())
+    assert saved[0]["to"] == "light.example_dimmer" and saved[0]["old"]["name"] == "Example Hall Light"
+
+
+async def test_after_a_replace_a_later_reload_keeps_the_ids_and_a_returning_old_device_gets_new_ones(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, replaceable: FakeHa, tmp_path: Path, repo: Path
+) -> None:
+    await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+    async with HaClient(ha_url, TOKEN) as ha:
+        await ha.reload_entry("isy-entry")
+        add_new_device(fake_iox, NEW_DIMMER.replace("7A 7B 7C", "AA BB CC"))  # the old Device is added back
+        await ha.reload_entry("isy-entry")
+
+    assert entity(replaceable, "light.example_dimmer")["unique_id"] == f"{UUID}_7A 7B 7C 1"
+    assert entity(replaceable, "light.example_dimmer_2")["unique_id"] == f"{UUID}_AA BB CC 1"

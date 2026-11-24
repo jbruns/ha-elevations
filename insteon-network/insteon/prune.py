@@ -71,7 +71,7 @@ def find_stale(network: Network, registry: HaRegistry) -> list[StaleHaDevice]:
         stale.append(
             StaleHaDevice(
                 device_id=device["id"],
-                name=device.get("name_by_user") or device.get("name") or "",
+                name=HaRegistry.device_name(device),
                 identifier=identifiers[0],
                 reason="; ".join(verdict for verdict in verdicts if verdict),
                 config_entries=registry.isy994_entries_of(device),

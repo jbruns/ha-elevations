@@ -10,20 +10,23 @@ in this order:
    For a Battery Device, the Administrator holds NEW's Set button first.
 2. Reads the Controller again. Unless it no longer has OLD and still has NEW,
    the command stops here, with HA untouched, so every Reference still works.
-3. Reconciles HA: reloads the isy994 integration, which removes OLD's
-   entities, then removes the Stale HA Devices, OLD's among them.
+3. Saves the renames to make in the backup folder, then Reconciles HA: reloads
+   the isy994 integration, which removes OLD's entities, then removes the
+   Stale HA Devices, OLD's among them.
 4. Renames each of NEW's entities to the ID of OLD's entity for the same
    Button (`config/entity_registry/update`, `new_entity_id`), carrying over
    its display name, icon, area, labels, aliases and disabled and hidden state.
 5. Carries OLD's HA device area, name and labels over to NEW's HA device.
 
 So every Reference by entity ID works again with no edit. HA lets an entity
-take an ID that only a deleted entity held, so the renames come after the reload
-has removed OLD's entities, never before. HA keeps a deleted entity's settings
-and gives them back if its unique ID returns, which is why step 2 makes sure
-IoX no longer has OLD: otherwise the reload would bring OLD's entities back. Before any
-rename, the tool checks that every old ID is free, so a collision stops the
-renames before the first.
+take an ID that only a deleted entity held, so the renames come after the
+reload has removed OLD's entities, never before. HA keeps a deleted entity's
+settings and gives them back if its unique ID returns, which is why step 2
+makes sure IoX no longer has OLD: otherwise the reload would bring OLD's
+entities back. Before any rename, the tool checks that every old ID is free,
+in the registry and in the state machine, so a collision stops the renames
+before the first. From step 3 on, OLD's entities are gone from HA, so any
+failure prints the renames still to make by hand, which step 3 also saved.
 
 Entities are matched on (domain, Button number, suffix): `light` for Button 1
 matches `light` for Button 1, `number` for `1_OL` matches `number` for `1_OL`.
@@ -34,27 +37,28 @@ OLD's References for the Administrator to fix.
 References that name OLD's HA device instead of an entity, as device
 triggers do, can't follow it: NEW has its own HA device. They are listed.
 
-If IoX already no longer has OLD but HA still has its entities, as after a run
-that stopped at step 2 for IoX to reboot, IoX's Replace is taken as done and
-only HA is Reconciled.
+`--resume` is for when IoX's Replace has run but HA was not Reconciled, as
+after a run that stopped at step 2 until IoX rebooted: the Controller no
+longer has OLD, but HA still has its entities. It skips steps 1 and 2.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from insteon import refs as refs_command
-from insteon.address import ButtonAddress, InsteonAddress
-from insteon.ha import DOMAIN, HaClient, HaError, HaRegistry, controller_suffix
-from insteon.iox import IoxClient
+from insteon.address import InsteonAddress
+from insteon.ha import DOMAIN, HaClient, HaError, HaRegistry
+from insteon.iox import IoxClient, IoxError
 from insteon.network import Device, Network
 from insteon.prune import PruneResult, reconcile
 from insteon.rails import DeviceWrite, HaRegistryBackup, IoxBackup, Rails, write_device
 from insteon.refs import find_mentions, ha_device_ids
-from insteon.resolve import ResolveError, resolve_device
+from insteon.resolve import ResolveError, button_of, device_address, resolve_device
 
 # What an entity rename carries over, as `config/entity_registry/update` takes them.
 _CARRIED = ("name", "icon", "area_id", "labels", "aliases")
@@ -62,9 +66,17 @@ _CARRIED = ("name", "icon", "area_id", "labels", "aliases")
 _STATES = ("disabled_by", "hidden_by")
 # What `search/related` finds naming an HA device that HA's config API can show.
 _DEVICE_USERS = ("automation", "script", "scene")
+# The renames step 3 saves in the backup folder before the reload.
+RENAMES_FILE = "replace-renames.json"
 
-Key = tuple[str, int, str]
-"""An isy994 entity's place on its Device: domain, Button number, unique-ID suffix."""
+
+@dataclass(frozen=True, order=True)
+class Place:
+    """Where an isy994 entity sits on its Device: domain, Button number and the rest of its unique ID."""
+
+    domain: str
+    button: int
+    suffix: str
 
 
 @dataclass(frozen=True)
@@ -93,8 +105,8 @@ class DeviceReference:
 class ReplacePlan:
     old: Device
     new: Device
-    replaced: bool
-    """IoX already has no OLD: its Replace is done, and only HA is Reconciled."""
+    resume: bool
+    """IoX's Replace is done already, and only HA is Reconciled."""
     renames: tuple[Rename, ...]
     mismatches: tuple[str, ...]
     """Why the Buttons don't match one for one; empty when they do."""
@@ -116,15 +128,37 @@ class ReplacePlan:
 class ReplaceResult:
     plan: ReplacePlan
     applied: bool = False
+    """IoX's Replace ran (or was done already, with `--resume`)."""
     write: DeviceWrite | None = None
     stopped: str | None = None
     """Why the command stopped before finishing, or None."""
+    reconciling: bool = False
+    """HA's reload has started: OLD's entities may be gone."""
     reconciled: PruneResult | None = None
     renamed: list[Rename] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
-    device_carried: bool = False
     backup: Path | None = None
     iox_backup: Path | None = None
+    renames_file: Path | None = None
+
+    @property
+    def finished(self) -> bool:
+        """Every step ran and nothing failed: every Reference by entity ID works."""
+        return self.applied and self.stopped is None and not self.failures
+
+    @property
+    def unrenamed(self) -> list[Rename]:
+        return [rename for rename in self.plan.renames if rename not in self.renamed]
+
+
+@dataclass(frozen=True)
+class _Step:
+    """What the HA steps share."""
+
+    ha: HaClient
+    plan: ReplacePlan
+    result: ReplaceResult
+    progress: Callable[[str], None]
 
 
 async def replace(
@@ -136,21 +170,22 @@ async def replace(
     new_name: str,
     *,
     repo: Path,
+    resume: bool = False,
     prompt: Callable[[str], str] = input,
     progress: Callable[[str], None] = lambda message: None,
 ) -> ReplaceResult:
     """Replace OLD with NEW, as the module says."""
     if not rails.apply:
-        return ReplaceResult(await _plan(iox, ha, old_name, new_name, repo=repo))
+        return ReplaceResult(await _plan(iox, ha, old_name, new_name, repo=repo, resume=resume))
 
     async with rails.changing("replace", [iox_backup, HaRegistryBackup(ha)]) as folder:
         progress(f"Backed up IoX to {iox_backup.path} and HA's registries to {folder}")
         # Plan again under the lock: either side may have changed since the dry run.
-        plan = await _plan(iox, ha, old_name, new_name, repo=repo)
+        plan = await _plan(iox, ha, old_name, new_name, repo=repo, resume=resume)
         result = ReplaceResult(plan, backup=folder, iox_backup=iox_backup.path)
         old, new = plan.old, plan.new
 
-        if not plan.replaced:  # 1
+        if not plan.resume:  # 1
             progress(f"Replacing {old.label} with {new.label} on the Controller")
             result.write = await write_device(
                 new,
@@ -168,8 +203,8 @@ async def replace(
                     else f"IoX no longer has {new.address} after the Replace"
                 ) + (
                     "; HA was not changed, so every Reference still works. Check the Controller (it may want a "
-                    "reboot), and don't reload the isy994 integration meanwhile. Once it no longer has "
-                    f"{old.address}, run this again to Reconcile HA"
+                    "reboot), and don't reload the isy994 integration or restart HA meanwhile. Once it no longer "
+                    f"has {old.address}, run this again with --resume to Reconcile HA"
                 )
                 return result
         result.applied = True
@@ -180,33 +215,46 @@ async def replace(
             )
             return result
 
-        progress("Reconciling HA: reloading the isy994 integration, then pruning")  # 3
-        result.reconciled = await reconcile(iox, ha)
-
-        registry = await ha.registry()  # 4
-        problem = _blocked(plan, registry)
-        if problem:
-            result.stopped = f"{problem}; no entity was renamed. Rename them by hand"
-            return result
-        await _rename(ha, plan, registry, result, progress)
-
-        await _carry_device(ha, plan, result, progress)  # 5
+        step = _Step(ha, plan, result, progress)
+        result.renames_file = _save_renames(folder, plan)  # 3
+        result.reconciling = True
+        try:
+            progress("Reconciling HA: reloading the isy994 integration, then pruning")
+            result.reconciled = await reconcile(iox, ha)
+            registry = await ha.registry()  # 4
+            problem = _blocked(plan, registry, await ha.entity_ids_with_state())
+            if problem:
+                result.stopped = f"{problem}; no entity was renamed"
+                return result
+            await _rename(step, registry)
+            await _carry_device(step)  # 5
+        except (HaError, IoxError) as error:
+            result.stopped = f"Reconciling HA failed: {error}"
     return result
 
 
-async def _rename(
-    ha: HaClient, plan: ReplacePlan, registry: HaRegistry, result: ReplaceResult, progress: Callable[[str], None]
-) -> None:
+def _save_renames(folder: Path, plan: ReplacePlan) -> Path:
+    """The renames to make, with the old entities' settings, saved before the reload removes OLD's entities."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / RENAMES_FILE
+    renames = [{"rename": rename.new_entity_id, "to": rename.entity_id, "old": rename.old} for rename in plan.renames]
+    path.write_text(json.dumps(renames, indent=2) + "\n")
+    return path
+
+
+async def _rename(step: _Step, registry: HaRegistry) -> None:
     """Give each of NEW's entities its old entity's ID and settings. A failed rename is reported, and the rest still run."""
-    for rename in plan.renames:
+    for rename in step.plan.renames:
         current = next(e for e in registry.entities if e.get("entity_id") == rename.new_entity_id)
-        progress(f"Renaming {rename.new_entity_id} to {rename.entity_id}")
+        step.progress(f"Renaming {rename.new_entity_id} to {rename.entity_id}")
         try:
-            await ha.update_entity(rename.new_entity_id, new_entity_id=rename.entity_id, **_settings(rename.old, current))
+            await step.ha.update_entity(
+                rename.new_entity_id, new_entity_id=rename.entity_id, **_settings(rename.old, current)
+            )
         except HaError as error:
-            result.failures.append(f"{rename.new_entity_id} -> {rename.entity_id}: {error}")
+            step.result.failures.append(f"{rename.new_entity_id} -> {rename.entity_id}: {error}")
             continue
-        result.renamed.append(rename)
+        step.result.renamed.append(rename)
 
 
 def _settings(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
@@ -228,13 +276,14 @@ def _settings(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     return changes
 
 
-def _blocked(plan: ReplacePlan, registry: HaRegistry) -> str | None:
+def _blocked(plan: ReplacePlan, registry: HaRegistry, states: frozenset[str]) -> str | None:
     """Why the renames can't run after the reload, or None.
 
-    Each of NEW's entities must still be there, and each old ID must be free.
-    NEW's IDs and OLD's never overlap: HA named NEW's entities while OLD's
-    were registered. So an old ID still taken means the reload kept an old
-    entity, or something else took the ID since.
+    Each of NEW's entities must still be there, and each old ID must be free:
+    neither registered nor in the state machine, as HA requires. NEW's IDs and
+    OLD's never overlap: HA named NEW's entities while OLD's were registered.
+    So an old ID still taken means the reload kept an old entity, or something
+    else took the ID since.
     """
     held = {str(e.get("entity_id")): e for e in registry.entities}
     for rename in plan.renames:
@@ -244,34 +293,37 @@ def _blocked(plan: ReplacePlan, registry: HaRegistry) -> str | None:
         if holder is not None:
             unique = holder.get("unique_id")
             return f"{rename.entity_id} is still taken after the reload (unique ID {unique!r}, platform {holder.get('platform')})"
+        if rename.entity_id in states:
+            return f"{rename.entity_id} still has a state in HA after the reload"
     return None
 
 
-async def _carry_device(ha: HaClient, plan: ReplacePlan, result: ReplaceResult, progress: Callable[[str], None]) -> None:
+async def _carry_device(step: _Step) -> None:
     """Give NEW's HA device the area, name and labels of OLD's."""
-    old, new = plan.old_ha_device, plan.new_ha_device
+    old, new = step.plan.old_ha_device, step.plan.new_ha_device
     if old is None or new is None:
         return
     changes: dict[str, Any] = {
         key: old.get(key) for key in ("area_id", "labels") if old.get(key) != new.get(key) and key in old
     }
-    name = old.get("name_by_user") or old.get("name")
-    if name and name != (new.get("name_by_user") or new.get("name")):
+    name = HaRegistry.device_name(old)
+    if name and name != HaRegistry.device_name(new):
         changes["name_by_user"] = name
     if not changes:
         return
-    progress(f"Carrying over the HA device's {', '.join(sorted(changes))}")
+    step.progress(f"Carrying over the HA device's {', '.join(sorted(changes))}")
     try:
-        await ha.update_device(str(new["id"]), **changes)
-        result.device_carried = True
+        await step.ha.update_device(str(new["id"]), **changes)
     except HaError as error:
-        result.failures.append(f"the HA device of {plan.new.label}: {error}")
+        step.result.failures.append(f"the HA device of {step.plan.new.label}: {error}")
 
 
 # Planning -----------------------------------------------------------------
 
 
-async def _plan(iox: IoxClient, ha: HaClient, old_name: str, new_name: str, *, repo: Path) -> ReplacePlan:
+async def _plan(
+    iox: IoxClient, ha: HaClient, old_name: str, new_name: str, *, repo: Path, resume: bool
+) -> ReplacePlan:
     network = await iox.network()
     registry = await ha.registry()
     try:
@@ -281,10 +333,10 @@ async def _plan(iox: IoxClient, ha: HaClient, old_name: str, new_name: str, *, r
             f"{error}. IoX replaces a Device only with one it already has: add it first with "
             f"`insteon add {new_name.strip()} NAME --apply`"
         ) from error
-    old, replaced = _resolve_old(old_name, network, registry)
+    old = _resume_old(old_name, network, registry) if resume else _resolve_old(old_name, network, registry)
     if old.address == new.address:
         raise ResolveError(f"{old.address} can't replace itself")
-    if not replaced and network.scenes_of(new):
+    if not resume and network.scenes_of(new):
         scenes = ", ".join(scene.name for scene in network.scenes_of(new))
         raise ResolveError(
             f"{new.label} is already in Scenes ({scenes}); a Replace moves {old.label}'s Scenes onto it. "
@@ -298,95 +350,95 @@ async def _plan(iox: IoxClient, ha: HaClient, old_name: str, new_name: str, *, r
         )
 
     mismatches = []
-    if not replaced:
+    if not resume:
         old_buttons = [button.address.button for button in old.buttons]
         new_buttons = [button.address.button for button in new.buttons]
         if old_buttons != new_buttons:
             mismatches.append(f"{old.label} has Buttons {_numbers(old_buttons)}; {new.label} has {_numbers(new_buttons)}")
     renames = []
-    for key, entity in sorted(old_entities.items()):
-        counterpart = new_entities.get(key)
+    for place, entity in sorted(old_entities.items()):
+        counterpart = new_entities.get(place)
         if counterpart is None:
             mismatches.append(f"{entity['entity_id']} has no counterpart on {new.label}")
         else:
             renames.append(Rename(entity, str(counterpart["entity_id"])))
-    extra = tuple(sorted(str(e["entity_id"]) for key, e in new_entities.items() if key not in old_entities))
+    extra = tuple(sorted(str(e["entity_id"]) for place, e in new_entities.items() if place not in old_entities))
 
+    references = await refs_command.report(ha, old, network, registry, repo=repo)
     old_devices = ha_device_ids(old, network, registry)
     new_devices = ha_device_ids(new, network, registry)
-    helpers = tuple(
-        sorted(
-            str(e["entity_id"]) for e in registry.entities if e.get("platform") != DOMAIN and e.get("device_id") in old_devices
-        )
-    )
     return ReplacePlan(
         old=old,
         new=new,
-        replaced=replaced,
+        resume=resume,
         renames=tuple(renames),
         mismatches=tuple(mismatches),
         extra=extra,
         old_ha_device=registry.device(old_devices[0]) if len(old_devices) == 1 else None,
         new_ha_device=registry.device(new_devices[0]) if len(new_devices) == 1 else None,
         device_references=await _device_references(ha, old_devices),
-        helpers=helpers,
-        references=await refs_command.report(ha, old, network, registry, repo=repo),
+        helpers=tuple(entity.entity_id for entity in references.entities if entity.platform != DOMAIN),
+        references=references,
     )
 
 
-def _resolve_old(text: str, network: Network, registry: HaRegistry) -> tuple[Device, bool]:
-    """OLD, and whether IoX's Replace is already done.
-
-    When the Controller has no Device at OLD's address but HA still has its
-    entities, the Replace is taken as done: OLD stands in as a Device with no
-    Buttons, named as HA named it.
-    """
+def _resolve_old(text: str, network: Network, registry: HaRegistry) -> Device:
+    """OLD, which the Controller must still have unless `--resume` says its Replace is done."""
     try:
-        return resolve_device(text, network, registry), False
-    except ResolveError:
+        return resolve_device(text, network, registry)
+    except ResolveError as error:
         address = _address_in(text, network, registry)
-        if address is None or network.device(address) is not None:
-            raise
-        if not _isy994_entities(registry, network.uuid, address):
-            raise
-    stand_in = Device(address, "", "", "", None, True, False, ())
-    devices = [registry.device(device_id) for device_id in ha_device_ids(stand_in, network, registry)]
-    name = next((d.get("name_by_user") or d.get("name") or "" for d in devices if d), "")
-    return Device(address, name, "", "", None, True, False, ()), True
+        if address is not None and _isy994_entities(registry, network.uuid, address):
+            raise ResolveError(
+                f"{error}, though HA still has its entities. If IoX's Replace of it has already run, "
+                "pass --resume to Reconcile HA only"
+            ) from error
+        raise
+
+
+def _resume_old(text: str, network: Network, registry: HaRegistry) -> Device:
+    """OLD after IoX's Replace: a Device the Controller no longer has, with its entities still in HA.
+
+    It stands in as a Device with no Buttons, named as HA named its device.
+    """
+    address = _address_in(text, network, registry)
+    if address is None:
+        raise ResolveError(f"with --resume, give OLD as an Insteon Address or an entity ID, not {text!r}")
+    if (device := network.device(address)) is not None:
+        raise ResolveError(f"the Controller still has {device.label}, so its Replace is not done; run without --resume")
+    gone = _gone(address, "")
+    if not _isy994_entities(registry, network.uuid, address):
+        raise ResolveError(
+            f"HA has no entities for {address} any more, so there are no old IDs to keep. The backup folder of the "
+            f"run that ran IoX's Replace holds them (ha-entities.json, {RENAMES_FILE}); rename by hand"
+        )
+    names = [HaRegistry.device_name(d) for i in ha_device_ids(gone, network, registry) if (d := registry.device(i))]
+    return _gone(address, names[0] if names else "")
+
+
+def _gone(address: InsteonAddress, name: str) -> Device:
+    """A Device the Controller no longer has, known only by its address and HA's name for it."""
+    return Device(address, name, model="", type_code="", folder=None, enabled=True, comms_error=False, buttons=())
 
 
 def _address_in(text: str, network: Network, registry: HaRegistry) -> InsteonAddress | None:
     """The Insteon Address `text` gives: as an address, or through an isy994 entity's unique ID."""
-    query = text.strip()
-    button = ButtonAddress.try_parse(query)
-    if button is not None:
-        return button.device
-    if (address := InsteonAddress.try_parse(query)) is not None:
+    if (address := device_address(text.strip())) is not None:
         return address
-    entity = registry.isy994_entity(query)
-    found = _key_of(entity, network.uuid) if entity else None
-    return found[1] if found else None
+    entity = registry.isy994_entity(text.strip())
+    place = button_of(entity, network.uuid) if entity else None
+    return place.button.device if place else None
 
 
-def _isy994_entities(registry: HaRegistry, uuid: str, address: InsteonAddress) -> dict[Key, dict[str, Any]]:
+def _isy994_entities(registry: HaRegistry, uuid: str, address: InsteonAddress) -> dict[Place, dict[str, Any]]:
     """The isy994 entities of one Device's Buttons, by their place on it."""
     found = {}
     for entity in registry.entities:
-        keyed = _key_of(entity, uuid) if entity.get("platform") == DOMAIN else None
-        if keyed is not None and keyed[1] == address:
-            found[keyed[0]] = entity
+        place = button_of(entity, uuid) if entity.get("platform") == DOMAIN else None
+        if place is not None and place.button.device == address:
+            domain = str(entity.get("entity_id", "")).split(".", 1)[0]
+            found[Place(domain, place.button.button, place.suffix)] = entity
     return found
-
-
-def _key_of(entity: dict[str, Any], uuid: str) -> tuple[Key, InsteonAddress] | None:
-    """`(domain, Button number, suffix)` and the Device's address, from an isy994 unique ID `<uuid>_AA BB CC 1_OL`."""
-    suffix = controller_suffix(str(entity.get("unique_id", "")), uuid)
-    address, _, rest = (suffix or "").partition("_")
-    button = ButtonAddress.try_parse(address)
-    if button is None:
-        return None
-    domain = str(entity.get("entity_id", "")).split(".", 1)[0]
-    return (domain, button.button, rest), button.device
 
 
 async def _device_references(ha: HaClient, device_ids: tuple[str, ...]) -> tuple[DeviceReference, ...]:
@@ -413,15 +465,15 @@ def _numbers(buttons: list[int]) -> str:
 
 def render(result: ReplaceResult) -> str:
     plan, old, new = result.plan, result.plan.old, result.plan.new
-    done = result.applied and result.stopped is None
-    title = "Replaced" if done else "Did not finish replacing" if result.stopped else "Would replace"
+    dry = not (result.applied or result.stopped or result.failures)
+    title = "Replaced" if result.finished else "Would replace" if dry else "Did not finish replacing"
     sections = [f"{title} {old.label} with {new.label}"]
     if result.stopped:
         sections.append(f"Stopped: {result.stopped}.")
 
     lines = []
-    if plan.replaced:
-        lines.append(f"1. IoX's Replace: already done (the Controller has no {old.address}, but HA still has its entities)")
+    if plan.resume:
+        lines.append(f"1. IoX's Replace: already done (--resume): the Controller has no {old.address}")
     else:
         lines.append(f"1. IoX's Replace: move {old.address}'s Scenes and Links onto {new.address}")
         if new.battery:
@@ -444,7 +496,13 @@ def render(result: ReplaceResult) -> str:
     lines += [f"   failed: {failure}" for failure in result.failures]
     sections.append("\n".join(lines))
 
-    if not plan.matched or (result.stopped and result.applied):
+    if result.reconciling and not result.finished and result.unrenamed:
+        lines = ["The old entities are gone from HA. Rename these by hand, in Settings > Entities, to keep the References:"]
+        lines += [f"  {rename.new_entity_id} -> {rename.entity_id}" for rename in result.unrenamed]
+        if result.renames_file is not None:
+            lines.append(f"  The old entities' settings: {result.renames_file}")
+        sections.append("\n".join(lines))
+    if not plan.matched or (result.applied and not result.finished):
         sections.append(refs_command.render(plan.references).rstrip("\n"))
     if plan.device_references:
         lines = ["These name the old HA device, which the new one does not inherit; edit them by hand afterwards"]
@@ -462,14 +520,10 @@ def render(result: ReplaceResult) -> str:
         )
 
     if result.backup is not None:
-        lines = []
-        if result.iox_backup is not None:
-            lines.append(f"IoX backup: {result.iox_backup}")
-        if result.backup is not None:
-            lines.append(f"HA backup: {result.backup}")
-        if done:
+        lines = [f"IoX backup: {result.iox_backup}", f"HA backup: {result.backup}"]
+        if result.finished:
             lines.append(f"Run `insteon audit {new.address}` to confirm its Links.")
         sections.append("\n".join(lines))
     else:
         sections.append("Dry run: nothing changed. Pass --apply to replace it.")
-    return "\n\n".join(section for section in sections if section) + "\n"
+    return "\n\n".join(sections) + "\n"

@@ -287,3 +287,7 @@ async def test_replace_is_a_dry_run_without_apply_and_refuses_a_new_device_iox_d
     out = capsys.readouterr().out
     assert "light.example_new -> light.example_dimmer" in out and "Dry run: nothing changed" in out
     assert fake_iox.writes() == [] and fake_ha.writes() == []
+    fake_iox.replace_keeps_old = True
+    assert await run([*base, "AA.BB.CC", "7A.7B.7C", "--apply"]) == 1
+    assert "Did not finish replacing" in capsys.readouterr().out
+    assert fake_ha.writes() == []

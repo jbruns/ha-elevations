@@ -145,17 +145,17 @@ Runs IoX's Replace (`ReplaceDevice`), which moves OLD's Scenes and Links onto NE
 
 1. IoX's Replace. For a Battery Device, the tool asks the Administrator to hold NEW's Set button first.
 2. Reads the Controller again. Unless OLD is gone and NEW is there, the command stops with HA untouched.
-3. Reloads the isy994 integration, which removes OLD's entities, then removes the Stale HA Devices, as `prune` does.
+3. Saves the renames to make, with the old entities' settings, as `replace-renames.json` in the backup folder. Then it reloads the isy994 integration, which removes OLD's entities, and removes the Stale HA Devices, as `prune` does.
 4. Renames each of NEW's entities to the ID of OLD's entity for the same Button (`config/entity_registry/update` with `new_entity_id`), and carries over its display name, icon, area, labels, aliases, and disabled and hidden state.
 5. Gives NEW's HA device the area, name and labels of OLD's.
 
-Entities are matched on domain, Button number and unique-ID suffix (`_OL` and the like). Two rules of HA's entity registry set the order. HA lets an entity take an ID that only a deleted entity held, so the renames wait until the reload has removed OLD's entities. HA also gives a deleted entity's ID and settings back if its unique ID returns, so step 2 makes sure IoX no longer has OLD. Before the first rename, the tool checks that every old ID is free. If one isn't, no entity is renamed, and the renames are printed to make by hand.
+Entities are matched on domain, Button number and unique-ID suffix (`_OL` and the like). Two rules of HA's entity registry set the order. HA lets an entity take an ID that only a deleted entity held, so the renames wait until the reload has removed OLD's entities. HA also gives a deleted entity's ID and settings back if its unique ID returns, so step 2 makes sure IoX no longer has OLD. Before the first rename, the tool checks that every old ID is free: not registered, and not in HA's state machine. If one isn't, no entity is renamed. From step 3 on, OLD's entities are gone from HA. So if any later step fails or stops, the command prints the renames still to make by hand, with the saved file, and exits with status 1.
 
 If the Buttons don't match one for one, the command stops after step 2 and prints OLD's References, as `refs` does. That happens when the Devices have different Buttons (a dimmer replaced by a keypad) or when an old entity has no counterpart. HA is left alone, but its next isy994 reload or restart removes OLD's entities, so fix the References first. New entities with no old counterpart keep their IDs.
 
 References that name OLD's HA device instead of an entity, such as device triggers, can't follow it, because NEW has its own HA device. They are listed for a hand edit, and so are helpers on OLD's HA device, such as `switch_as_x`.
 
-If IoX accepts the Replace but still has OLD, step 2 stops. Old firmware asked for a reboot after a Replace. Once the Controller no longer has OLD, run the same command again. With OLD gone from IoX but its entities still in HA, it skips IoX's Replace and only Reconciles HA. Don't reload the isy994 integration or restart HA in between, or OLD's entities, and with them the old IDs to rename to, are gone.
+If IoX accepts the Replace but still has OLD, step 2 stops. Old firmware asked for a reboot after a Replace. Once the Controller no longer has OLD, run the command again with `--resume`. It skips steps 1 and 2 and only Reconciles HA, and refuses while IoX still has OLD. Without `--resume`, an OLD that IoX no longer has is refused, so a Device removed some other way is never taken for a Replace. Don't reload the isy994 integration or restart HA in between, or OLD's entities, and with them the old IDs to rename to, are gone. The registry backup of the first run (`ha-entities.json`) still holds them, for renaming by hand.
 
 ### `scene`
 
