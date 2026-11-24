@@ -8,6 +8,7 @@ dependencies = [
   # HA test pin decides the version (ADR 0008).
   "aiohttp>=3.9",
   "asyncssh>=2.14",
+  "pyyaml>=6",
 ]
 
 [project.scripts]

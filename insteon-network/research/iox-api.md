@@ -170,7 +170,10 @@ The Admin Console uses the same protocol: UDI says its Python action constants "
 Body: `<command>G_ISY_ALL|G_DEV_ALL|G_PLM_ALL|STOP</command><node>AA BB CC 1</node><option/><flag>1</flag><CDATA>0 -1</CDATA>`.
 
 - `G_ISY_ALL` returns the Links the Controller expects the Device to hold. It answers at once, from cache. **V**
+  - For the Modem's own address it answers HTTP 501: the Controller keeps no expected table for the Modem. **V** The Link Audit therefore mirrors the Modem's expected Links from the Devices' tables: a Device's Link with the Modem implies one in the Modem with the same group and the opposite role. **V** (the comparison agreed on a live network), **H** (the master/slave record pairs in the header of [NUCORE-wrapper] `insteon_diag.py`).
 - `G_DEV_ALL` reads the Links from the Device itself. One dimmer with 6 records took about 6 s. **V** Old Devices may take minutes, with 20-30 s between records [NUCORE-wrapper `insteon_diag.py`]. **H**
+  - A Device that does not answer streams no records. IoX gives up after about 22 s and the SOAP call returns HTTP 501. A Battery Device that is not in linking mode does the same. **V**
+  - A Smoke Bridge (category 16, subcategory 10) is powered and answered with 8 records in 11 s. **V**
 - `G_PLM_ALL` reads the Modem's table [EISYUI-family]. **H** On IoX 6.0.5 it streams nothing unless `node` is the Modem's own address (`AA BB CC`, from `G_PLM_INFO`). eisy-ui sends an empty `node`. **V**
   - Records arrive as `_2` with `action` 1 and an empty `<node>`. `ix` and `ad` are both the record index. `fl`, `gr`, `id` and `data` are as below. **V**
   - The read is bracketed by `_5` busy 1 and 0, and the SOAP call returns only when it is done. About 2 records a second: 197 records took 100 s. No `fl` 0 record ends the table. **V**
@@ -182,7 +185,8 @@ Body: `<command>G_ISY_ALL|G_DEV_ALL|G_PLM_ALL|STOP</command><node>AA BB CC 1</no
   - A record with `fl` 0 ends the table. **V**
 - A session is wrapped in `_5` busy 1 then 0, followed by a `_7` "[All] Writing 0 bytes to devices" message. That is the routine flush of Pending Writes; nothing was written. **V**
 - **A Link Audit is a client-side diff.** IoX has no compare call. UDI's own diagnostic reads `G_DEV_ALL` and `G_ISY_ALL` and diffs them, skipping deleted (0x22 / 0x02) and end-of-table records [NUCORE-wrapper `insteon_diag.py`]. **H**
-- Flags differ in unused bits. On the tested dimmer, responder records were 0xE2 expected and 0xEA on the Device (bit 0x08). The audit should compare only in-use (0x80), controller (0x40) and bit 0x20. **V** (observed), **L** (mask choice).
+- Flags differ in unused bits. On the tested dimmer, records were 0xE2 expected and 0xEA on the Device (bit 0x08). **V**
+- The Link Audit compares only in-use (0x80) and controller (0x40), and leaves out records not in use. UDI's diagnostic keys records on role, group and address, then compares data. It takes the role from the whole flag byte: 0xA2 responder, 0xE2 controller, 0x22 deleted, 0x00 end of table, and 0xEA a "high water mark" it skips [NUCORE-wrapper `insteon_diag.py` `_FLAG_ROLES`]. **H** The roles it compares differ only in those two bits. Its exact-byte match would skip the live 0xEA record, a working Link, so the tool masks instead. **V** (observed), **L** (that the other bits never matter).
 - The Modem serves one link operation at a time. Run reads and Restores one after another [NUCORE-wrapper `insteon_diag.py`]. **H**
 
 ---
@@ -219,6 +223,7 @@ Decoded from the Controller's own files (IoX 6.0.5, 31 files, 83 statements). **
 ## 6. Pitfalls
 
 - **Pending Writes and batch mode.** With batch mode on, changes only update the Controller's files. Turning it off writes everything pending. `batteryPoweredWrites/off` holds writes to Battery Devices even with batch mode off [WSSDK §6.1]. **H**
+- **Battery Devices by type.** IoX's `<type>` is the Insteon category, subcategory and firmware, in decimal (`16.2.64.0`). The tool treats category 16 (sensors) as Battery Devices, except the Smoke Bridge (16.10), and category 0 (remotes). **V** (16.2, 16.8, 16.17 and 16.10 on the live Controller), **L** (category 0).
 - **Battery Devices** must be put in linking mode by hand before any write, one at a time. Two in linking mode at once link to each other. They leave linking mode after about 4 minutes — https://forum.universal-devices.com/topic/17990-question-about-battery-devices-after-restore-reload-from-backup/ , https://wiki.universal-devices.com/ISY-99i/ISY-26_INSTEON:File_Menu **M**. The tool should queue, prompt the Administrator to press Set, then write.
 - **Adding by address.** `AddNode` works for most wired Devices without pressing Set — https://wiki.universal-devices.com/ISY-99i/ISY-26_INSTEON:Adding_a_Device **M**. A new I2CS Device ignores a Modem that is not in its link table, so it may need the Set-button sequence — https://forum.universal-devices.com/topic/12454-plm-link-table-after-deleting-a-device **M**
 - **Linking with Set** is `StartNodesDiscovery`, a Set press per Device, then `StopNodesDiscovery flag=1|3|4`. The flags match the Admin Console's three link-management options — https://wiki.universal-devices.com/ISY-99i/ISY-26_INSTEON:Link_Management_Menu **H** (menu), **M** (flag mapping).
@@ -258,6 +263,6 @@ Decoded from the Controller's own files (IoX 6.0.5, 31 files, 83 statements). **
 3. ~~Does `GetSysConf` still exist on IoX 6?~~ Yes (§3). SSH already covers the need.
 4. Does `/rest/nodes/<addr>/write` still exist, or only `WriteDeviceUpdates`?
 5. The values `SetDeviceLinkMode` accepts for "auto / I1 / I2CS" linking.
-6. The exact flag mask for the Link Audit. Check it against `insteon_diag.py`.
+6. ~~The exact flag mask for the Link Audit.~~ Answered in §4: in-use and controller only.
 7. Does `RemoveNode` alone rewrite the peers' link tables? Test on one Device, then Link Audit.
 8. The format of `CONF/*.REC`, and whether it matches `G_ISY_ALL`.

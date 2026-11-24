@@ -1,12 +1,14 @@
 from pathlib import Path
 
 import pytest
-from insteon_fakes import D2D_TAR, FakeEisySsh, FakeIox, MODEM, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, USER, UUID, plm_record
+from insteon_fakes import D2D_TAR, FakeEisySsh, FakeIox, MODEM, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, USER, UUID
+from insteon_fakes import Rec, plm_record
 from insteon_fakes import eisy_ssh, fake_iox, fake_ssh, iox_url  # noqa: F401 (fixtures)
 
 from insteon.address import InsteonAddress, ButtonAddress
-from insteon.iox import IoxClient, IoxError, IoxFiles, soap_envelope
+from insteon.iox import DeviceUnresponsive, IoxClient, IoxError, IoxFiles, soap_envelope
 from insteon.program import Command, Condition, NodeStatus, SetVariable, Undecoded, VariableKind, VariableRef, Wait
+
 
 
 def client(url: str, secret: str = PASSWORD) -> IoxClient:
@@ -27,7 +29,7 @@ async def test_the_network_lists_each_device_with_its_buttons(iox_url: str) -> N
         ("11.22.33 3", "Example Keypad A"),
         ("11.22.33 4", "Example Keypad B"),
     ]
-    assert [str(d.address) for d in network.devices] == ["0A.0B.0C", "11.22.33", "22.33.44", "AA.BB.CC"]
+    assert [str(d.address) for d in network.devices] == ["0A.0B.0C", "11.22.33", "22.33.44", "5A.5B.5C", "6A.6B.6C", "AA.BB.CC"]
 
 
 async def test_the_network_reads_addresses_iox_printed_without_leading_zeros(iox_url: str) -> None:
@@ -211,3 +213,43 @@ async def test_only_files_named_by_a_hex_program_id_are_read_as_programs(
     bodies = await files(eisy_ssh).program_bodies()
 
     assert sorted(bodies) == [0x01, 0x02, 0x03, 0x04, 0x0A]
+
+
+async def test_the_expected_links_of_a_device_come_from_the_controller(iox_url: str, fake_iox: FakeIox) -> None:
+    fake_iox.expected["AA BB CC 1"] = [Rec(0xA2, 0, 0x2A2B2C, 0xFF1F01), Rec(0xE2, 1, 0x2A2B2C, 0x010001)]
+    async with client(iox_url) as iox:
+        links = await iox.expected_links(ButtonAddress.parse("AA BB CC 1"))
+
+    assert [(link.flags, link.group, str(link.address), link.data) for link in links] == [
+        (0xA2, 0, MODEM, 0xFF1F01),
+        (0xE2, 1, MODEM, 0x010001),
+    ]
+    assert fake_iox.soap_calls[-1]["params"] == {
+        "command": "G_ISY_ALL", "node": "AA BB CC 1", "option": "", "flag": "1", "CDATA": "0 -1"
+    }
+
+
+async def test_a_devices_own_links_are_read_from_the_device(iox_url: str, fake_iox: FakeIox) -> None:
+    fake_iox.actual["AA BB CC 1"] = [Rec(0xA2, 0, 0x2A2B2C, 0xFF1F01), Rec(0xEA, 1, 0x2A2B2C, 0x010001)]
+    async with client(iox_url) as iox:
+        links = await iox.device_links(ButtonAddress.parse("AA BB CC 1"))
+
+    assert [(link.flags, link.group, str(link.address)) for link in links] == [(0xA2, 0, MODEM), (0xEA, 1, MODEM)]
+    assert fake_iox.device_reads() == ["AA BB CC 1"]
+
+
+async def test_a_device_iox_cannot_reach_is_unresponsive(iox_url: str, fake_iox: FakeIox) -> None:
+    async with client(iox_url) as iox:
+        with pytest.raises(DeviceUnresponsive, match="did not answer"):
+            await iox.device_links(ButtonAddress.parse("A B C 1"))
+
+
+async def test_a_device_that_answers_too_slowly_is_unresponsive_and_the_read_is_stopped(
+    iox_url: str, fake_iox: FakeIox
+) -> None:
+    fake_iox.silent.add("A B C 1")
+    async with client(iox_url) as iox:
+        with pytest.raises(DeviceUnresponsive, match="within 0.3 s"):
+            await iox.device_links(ButtonAddress.parse("A B C 1"), timeout=0.3)
+
+    assert fake_iox.soap_calls[-1]["params"]["command"] == "STOP"

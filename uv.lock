@@ -1291,12 +1291,14 @@ source = { editable = "insteon-network" }
 dependencies = [
     { name = "aiohttp" },
     { name = "asyncssh" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "asyncssh", specifier = ">=2.14" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 
 [[package]]

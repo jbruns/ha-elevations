@@ -12,6 +12,9 @@ uv run insteon inventory 1A.2B.3C        # only some Devices, and the Scenes the
 uv run insteon prune                     # list Stale HA Devices (a dry run)
 uv run insteon prune --apply             # remove them
 uv run insteon programs > .private/iox-programs.txt   # IoX programs and variables as text
+uv run insteon audit                     # the Link Audit of every Device and the Modem (minutes)
+uv run insteon audit 1A.2B.3C            # only some Devices
+uv run insteon refs light.example        # every Reference to a Device's entities
 ```
 
 `insteon-network/` is a member of the repo's uv workspace, and the root project depends on it, so `uv sync` installs the command. The Python package is `insteon`, because a package name can't contain a hyphen.
@@ -64,6 +67,26 @@ Each variable shows its type, id, name, value, init, and the programs that use i
 The list comes from `/rest/programs` and `/rest/vars`. The bodies come from the D2D files (`/var/isy/FILES/CONF/D2D/*.PGM`) over SSH. Only root can read them, so the tool runs one `tar` under `sudo -S` and sends the SSH password on stdin, never on a command line. Statements are decoded in the shapes IoX 6.0.5 writes. Any other shape is printed raw as `[not decoded]` and counted at the top, and a file that will not parse is printed whole as `[file not parsed]`, so no logic is dropped silently. The Devices such statements name still count toward possible duplicates.
 
 What HA automations reference comes from Home Assistant's own `search/related`: the entities and devices an automation names. An automation that reaches a Device only through an area or label isn't matched.
+### `audit`
+
+The Link Audit. It is read-only, but it holds the lock throughout, since every Link-table read is a Modem operation. For each Device, it compares the Links the Device holds (`G_DEV_ALL`) with those the Controller expects (`G_ISY_ALL`). The Controller keeps no expected table for the Modem, so the Modem's expected Links are mirrored from the Devices' tables: a Device's Link with the Modem implies one in the Modem with the same group and the opposite role. It reports:
+
+- **Unresponsive Devices**, with their Scenes. A Device that IoX gives up on (HTTP 501, after about 22 s) or that does not finish within `--timeout` (120 s by default) is an Unresponsive Device, not an error. Only the Administrator decides whether to Remove or Restore each one.
+- **Stale Links**: Links a Device or the Modem holds to an address the Controller has no Device at, or to an Unresponsive Device found in the same run. Each comes with the Scenes it serves.
+- **Differences**: Links that are `missing` (expected but not held), `extra` (held but not expected), or whose `data` differs, with their Scenes. A missing Link to an Unresponsive Device is marked as such.
+
+Links are matched on role, group and linked address. Only flag bits 0x80 (in use) and 0x40 (controller) count, and records not in use are left out ([research/iox-api.md](./research/iox-api.md) §4). The Modem's Links are compared without their data, which the Controller does not model.
+
+Battery Devices and disabled Devices are skipped unless named. For a named Battery Device, the tool asks the Administrator to hold its Set button first. Progress goes to stderr, the report to stdout. `--no-modem-links` skips the Modem's table, which takes about two records a second. When Devices are named, only they and the Modem's Links to them are compared.
+
+### `refs`
+
+Lists every Reference to a Device's entities and changes nothing. The Device's entities are its isy994 entities, plus helpers on the same HA device, such as `switch_as_x`. Its Scenes' switches are not included.
+
+- **Home Assistant**: automations, scripts, scenes, groups (including group helpers) and persons, from HA's own `search/related`; and every Lovelace dashboard HA returns a config for, storage or YAML, down to the path in the config. Helpers that keep an entity in their config entry's options, such as template and min_max helpers, can't be searched, because the API returns those options only by starting an options flow. Template entities in HA's own YAML can't be searched either. The report names each such helper so it can be checked by hand.
+- **Repo**: every gitignored `*.local.yaml` overlay whose token value is the entity ID or its bare object ID, read as YAML (ADR 0009), then each tracked file using `{TOKEN}`, and each tracked file that names the entity directly, such as a blueprint input or a test. Overlays live only in the main checkout, so from a worktree pass `--repo` with the main checkout's path. Overlay values are never printed.
+
+The output is printed only. Never paste it into tracked files: it holds real entity IDs.
 
 ## Rails
 
@@ -87,7 +110,7 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 | `insteon/resolve.py` | DEVICE argument → Device, and a Device or Scene → its HA entities |
 | `insteon/rails.py` | Dry run, lock and backups |
 | `insteon/config.py` | Finds the private folder and reads the credentials |
-| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py` | The commands |
+| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/audit.py`, `insteon/refs.py` | The commands |
 | `insteon/cli.py` | The `insteon` entry point |
 
 ## Tests

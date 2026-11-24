@@ -20,6 +20,11 @@ DOMAIN = "isy994"
 class HaError(RuntimeError):
     """Home Assistant refused a call or could not be reached."""
 
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        """The error code Home Assistant answered with, such as `config_not_found`."""
+
 
 def controller_suffix(identifier: str, uuid: str) -> str | None:
     """What an isy994 ID names on the Controller with this uuid.
@@ -147,7 +152,8 @@ class HaClient:
                 break
         if not reply.get("success"):
             error = reply.get("error") or {}
-            raise HaError(f"{kind}: {error.get('code', 'error')}: {error.get('message', '')}".rstrip(": "))
+            code = error.get("code", "error")
+            raise HaError(f"{kind}: {code}: {error.get('message', '')}".rstrip(": "), code=code)
         return reply.get("result")
 
     async def registry(self) -> HaRegistry:
@@ -174,6 +180,23 @@ class HaClient:
                 )
             )
         return sorted(automations, key=lambda automation: automation.entity_id)
+
+
+    async def related(self, entity_id: str) -> dict[str, list[str]]:
+        """What HA's own search finds related to an entity: automations, scripts, groups and so on."""
+        return await self.call("search/related", item_type="entity", item_id=entity_id) or {}
+
+    async def config_entries(self) -> list[dict[str, Any]]:
+        """Every config entry: domain, title and state, but not its options."""
+        return await self.call("config_entries/get")
+
+    async def dashboards(self) -> list[dict[str, Any]]:
+        """The Lovelace dashboards other than the default one."""
+        return await self.call("lovelace/dashboards/list")
+
+    async def dashboard_config(self, url_path: str | None) -> Any:
+        """A dashboard's config, storage or YAML; `url_path` None is the default dashboard."""
+        return await self.call("lovelace/config", **({} if url_path is None else {"url_path": url_path}))
 
     async def remove_config_entry(self, device_id: str, config_entry_id: str) -> None:
         """Detach a device from a config entry; HA deletes a device left with none."""

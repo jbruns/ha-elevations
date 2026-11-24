@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -113,3 +114,33 @@ async def test_programs_without_the_ssh_login_fails_naming_the_missing_settings(
     assert await run(["--private-dir", str(private), "programs"]) == 1
 
     assert "does not set IOX_SSH_USER, IOX_SSH_PASSWORD" in capsys.readouterr().err
+async def test_audit_prints_the_report_and_its_progress_apart(
+    private: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(private), "audit", "--no-modem-links", "AA.BB.CC"]) == 0
+
+    captured = capsys.readouterr()
+    assert "Unresponsive Devices (1)" in captured.out
+    assert "AA.BB.CC Example Dimmer: reading its Links" in captured.err
+    assert "reading its Links" not in captured.out
+
+
+async def test_refs_prints_the_references_of_a_device(
+    private: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+
+    assert await run(["--private-dir", str(private), "refs", "--repo", str(repo), "light.example_dimmer"]) == 0
+
+    out = capsys.readouterr().out
+    assert "References to AA.BB.CC Example Dimmer" in out
+    assert "number.example_dimmer_on_level" in out
+
+
+async def test_refs_outside_a_git_repo_fails_plainly(
+    private: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(private), "refs", "--repo", str(tmp_path / "nowhere"), "AA.BB.CC"]) == 1
+
+    assert "cannot list files" in capsys.readouterr().err

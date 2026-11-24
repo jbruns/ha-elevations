@@ -10,6 +10,7 @@ import asyncio
 import base64
 import io
 import tarfile
+import contextlib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,6 +47,31 @@ def plm_record(ix: int, flags: int, group: int, address: int, data: int = 0) -> 
     )
 
 
+def link_record(action: str, node: str, ix: int, flags: int, group: int, address: int, data: int = 0) -> str:
+    """A Device Link record event: action 3 for G_ISY_ALL (expected), 2 for G_DEV_ALL (read)."""
+    return _event(
+        "_2",
+        action,
+        node,
+        f"<ix>{ix}</ix><ad>{4088 - 8 * ix}</ad><fl>{flags}</fl><gr>{group}</gr><id>{address}</id><data>{data}</data>",
+    )
+
+
+@dataclass(frozen=True)
+class Rec:
+    """One Link as a test writes it: flags, group, linked address and data."""
+
+    flags: int
+    group: int
+    address: int
+    data: int = 0
+
+
+def _table(action: str, node: str, records: list[Rec]) -> list[str]:
+    events = [link_record(action, node, ix, r.flags, r.group, r.address, r.data) for ix, r in enumerate(records)]
+    return events + [link_record(action, node, len(records), 0, 0, 0)]
+
+
 @dataclass
 class FakeIox:
     nodes_xml: str = field(default_factory=lambda: (FIXTURES / "nodes.xml").read_text())
@@ -53,9 +79,16 @@ class FakeIox:
     programs_xml: str = field(default_factory=lambda: (FIXTURES / "programs.xml").read_text())
     plm_info: str = f"{MODEM} v9B / Connected"
     plm_records: list[str] = field(default_factory=list)
+    expected: dict[str, list[Rec]] = field(default_factory=dict)
+    """G_ISY_ALL tables, keyed by the Device's primary Button address as IoX writes it. Empty by default."""
+    actual: dict[str, list[Rec]] = field(default_factory=dict)
+    """G_DEV_ALL tables. A Device missing here does not answer: IoX gives up with HTTP 501."""
+    silent: set[str] = field(default_factory=set)
+    """Devices whose G_DEV_ALL read never ends, so the client's own timeout fires."""
     soap_calls: list[dict[str, Any]] = field(default_factory=list)
     gets: list[str] = field(default_factory=list)
     _sockets: list[web.WebSocketResponse] = field(default_factory=list)
+    _stop: asyncio.Event = field(default_factory=asyncio.Event)
 
     def _authorised(self, request: web.Request) -> bool:
         expected = "Basic " + base64.b64encode(f"{USER}:{PASSWORD}".encode()).decode()
@@ -84,9 +117,12 @@ class FakeIox:
         await ws.send_str('<?xml version="1.0" encoding="UTF-8"?><SubscriptionResponse><SID>uuid:1</SID></SubscriptionResponse>')
         await ws.send_str(_event("ST", "0", "AA BB CC 1"))
         self._sockets.append(ws)
-        async for message in ws:
-            if message.type == WSMsgType.CLOSE:
-                break
+        try:
+            async for message in ws:
+                if message.type == WSMsgType.CLOSE:
+                    break
+        finally:
+            self._sockets.remove(ws)
         return ws
 
     async def _services(self, request: web.Request) -> web.StreamResponse:
@@ -112,10 +148,36 @@ class FakeIox:
                     await asyncio.sleep(0)
                 await ws.send_str(_event("ST", "255", "AA BB CC 1"))
                 await ws.send_str(_event("_5", "0"))
+        if element == "DeviceSpecific" and call["params"].get("command") == "STOP":
+            self._stop.set()
+        if element == "DeviceSpecific" and call["params"].get("command") in ("G_ISY_ALL", "G_DEV_ALL"):
+            node = call["params"].get("node", "")
+            reading = call["params"]["command"] == "G_DEV_ALL"
+            tables, action = (self.actual, "2") if reading else (self.expected, "3")
+            if reading and node in self.silent:
+                # Like IoX, the read runs until STOP cancels it.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._stop.wait(), 30)
+                return web.Response(status=501)
+            await self._broadcast([_event("_5", "1")])
+            if reading and node not in tables:
+                await self._broadcast([_event("_5", "0")])
+                return web.Response(status=501)
+            await self._broadcast([*_table(action, node, tables.get(node, [])), _event("_5", "0")])
         return web.Response(
             text='<?xml version="1.0" encoding="UTF-8"?><s:Envelope><s:Body><UDIDefaultResponse><status>200</status></UDIDefaultResponse></s:Body></s:Envelope>',
             content_type="text/xml",
         )
+
+    async def _broadcast(self, events: list[str]) -> None:
+        for ws in self._sockets:
+            for event in events:
+                await ws.send_str(event)
+                await asyncio.sleep(0)
+
+    def device_reads(self) -> list[str]:
+        """The nodes the tool read Links from (G_DEV_ALL), in order."""
+        return [c["params"]["node"] for c in self.soap_calls if c["params"].get("command") == "G_DEV_ALL"]
 
     def app(self) -> web.Application:
         app = web.Application()
@@ -256,9 +318,24 @@ class FakeHa:
         ]
     )
     commands: list[dict[str, Any]] = field(default_factory=list)
+    related: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    """`search/related` answers for an entity, by entity ID."""
+    dashboards: list[dict[str, Any]] = field(default_factory=list)
+    """`lovelace/dashboards/list`: the dashboards other than the default one."""
+    dashboard_configs: dict[str | None, Any] = field(default_factory=dict)
+    """`lovelace/config` by url_path (None for the default dashboard). Missing: config_not_found."""
 
     def _result(self, message: dict[str, Any]) -> dict[str, Any]:
         kind = message["type"]
+        if kind == "search/related" and message.get("item_type") == "entity":
+            return {"success": True, "result": self.related.get(message["item_id"], {})}
+        if kind == "lovelace/dashboards/list":
+            return {"success": True, "result": self.dashboards}
+        if kind == "lovelace/config":
+            url_path = message.get("url_path")
+            if url_path not in self.dashboard_configs:
+                return {"success": False, "error": {"code": "config_not_found", "message": "No config found."}}
+            return {"success": True, "result": self.dashboard_configs[url_path]}
         if kind == "config/device_registry/list":
             return {"success": True, "result": self.devices}
         if kind == "config/entity_registry/list":
