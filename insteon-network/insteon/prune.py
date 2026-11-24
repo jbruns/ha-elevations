@@ -71,7 +71,7 @@ def find_stale(network: Network, registry: HaRegistry) -> list[StaleHaDevice]:
         stale.append(
             StaleHaDevice(
                 device_id=device["id"],
-                name=device.get("name_by_user") or device.get("name") or "",
+                name=HaRegistry.device_name(device),
                 identifier=identifiers[0],
                 reason="; ".join(verdict for verdict in verdicts if verdict),
                 config_entries=registry.isy994_entries_of(device),
@@ -125,9 +125,14 @@ async def remove_stale(iox: IoxClient, ha: HaClient) -> PruneResult:
 
 async def reconcile(iox: IoxClient, ha: HaClient) -> PruneResult:
     """Reload the isy994 integration, then remove the Stale HA Devices. The caller holds the lock."""
+    await reload_isy994(ha)
+    return await remove_stale(iox, ha)
+
+
+async def reload_isy994(ha: HaClient) -> None:
+    """Reload each isy994 config entry, which removes the entities the Controller no longer has."""
     for entry in sorted((await ha.registry()).isy994_entries):
         await ha.reload_entry(entry)
-    return await remove_stale(iox, ha)
 
 
 def render(result: PruneResult, *, applying: bool) -> str:

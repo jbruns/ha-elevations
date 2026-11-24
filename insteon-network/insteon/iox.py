@@ -75,6 +75,8 @@ _STREAM_GRACE = 5.0
 # the Modem's holds hundreds of Links, at about two a second.
 WRITE_TIMEOUT = 300.0
 MODEM_RESTORE_TIMEOUT = 1800.0
+# A Replace rewrites the new Device's table and every Scene Peer's Links to the old one.
+REPLACE_TIMEOUT = 1800.0
 # A Battery Device leaves linking mode after about four minutes (iox-api.md §6).
 BATTERY_WINDOW = 240.0
 # MoveNode's LinkModeFlag: the Button joins the Scene as a Controller or a Responder.
@@ -481,6 +483,25 @@ class IoxClient:
     async def restore_modem(self, *, timeout: float = MODEM_RESTORE_TIMEOUT) -> Write:
         """Restore the Modem's Links from the Controller's database (`ReplaceModem`)."""
         return await self._write("ReplaceModem", {}, timeout=timeout)
+
+    async def replace_device(
+        self, old: ButtonAddress, new: ButtonAddress, firmware: str, *, until_clear: bool = False
+    ) -> Write:
+        """Replace one Device with another the Controller already has (`ReplaceDevice`).
+
+        IoX moves the old Device's Scenes and Links onto the new one. `old` and
+        `new` are their primary Buttons, and `firmware` is the new Device's
+        type as `/rest/nodes` gives it (`1.32.65.0`). These are the live
+        schema's names; eisy-ui sends `id`, `name` and `command` (iox-api.md
+        §3). With `until_clear`, as for a new Battery Device, wait until its
+        Pending Writes clear (see `_write`).
+        """
+        return await self._write(
+            "ReplaceDevice",
+            {"node": old.iox, "NewNode": new.iox, "firmware": firmware},
+            timeout=REPLACE_TIMEOUT,
+            until_clear=new.device if until_clear else None,
+        )
 
     async def add_device(self, address: InsteonAddress, name: str, *, flag: int, until_clear: bool = False) -> Write:
         """Add a Device by its Insteon Address (`AddNode`).

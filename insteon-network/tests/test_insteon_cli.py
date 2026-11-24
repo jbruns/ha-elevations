@@ -261,3 +261,33 @@ async def test_a_scene_change_that_breaks_a_rule_fails_plainly(
 
     assert "a Button controls at most one Scene" in capsys.readouterr().err
     assert fake_iox.writes() == []
+
+
+async def test_replace_is_a_dry_run_without_apply_and_refuses_a_new_device_iox_does_not_have(
+    programs_private: Path, tmp_path: Path, fake_iox: FakeIox, fake_ha: FakeHa, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    base = ["--private-dir", str(programs_private), "replace", "--repo", str(repo)]
+
+    assert await run([*base, "AA.BB.CC", "7A.7B.7C"]) == 1
+    assert "add it first with `insteon add 7A.7B.7C NAME --apply`" in capsys.readouterr().err
+
+    fake_iox.nodes_xml = fake_iox.nodes_xml.replace(
+        "</nodes>",
+        '<node flag="128" nodeDefId="DimmerLampSwitch_ADV"><address>7A 7B 7C 1</address><name>Example New</name>'
+        "<type>1.32.65.0</type><enabled>true</enabled><pnode>7A 7B 7C 1</pnode></node></nodes>",
+    )
+    fake_ha.entities += [
+        {"entity_id": "light.example_new", "unique_id": "00:00:00:00:00:00_7A 7B 7C 1", "platform": "isy994", "device_id": None},
+        {"entity_id": "number.example_new_on_level", "unique_id": "00:00:00:00:00:00_7A 7B 7C 1_OL", "platform": "isy994", "device_id": None},
+    ]
+    assert await run([*base, "AA.BB.CC", "7A.7B.7C"]) == 0
+
+    out = capsys.readouterr().out
+    assert "light.example_new -> light.example_dimmer" in out and "Dry run: nothing changed" in out
+    assert fake_iox.writes() == [] and fake_ha.writes() == []
+    fake_iox.replace_keeps_old = True
+    assert await run([*base, "AA.BB.CC", "7A.7B.7C", "--apply"]) == 1
+    assert "Did not finish replacing" in capsys.readouterr().out
+    assert fake_ha.writes() == []

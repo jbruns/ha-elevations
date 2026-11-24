@@ -9,6 +9,8 @@ its Home Assistant entities, is `ha_entity_ids`.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import Any
 
 from insteon.address import ButtonAddress, InsteonAddress
 from insteon.ha import DOMAIN, HaRegistry, controller_suffix
@@ -20,7 +22,7 @@ _ENTITY_ID = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
 def needs_home_assistant(text: str) -> bool:
     """Whether resolving `text` means reading Home Assistant: it is an entity ID."""
     query = text.strip()
-    return _address(query) is None and bool(_ENTITY_ID.fullmatch(query))
+    return device_address(query) is None and bool(_ENTITY_ID.fullmatch(query))
 
 
 class ResolveError(LookupError):
@@ -30,7 +32,7 @@ class ResolveError(LookupError):
 def resolve_device(text: str, network: Network, registry: HaRegistry | None) -> Device:
     """The one Device `text` names. Raises ResolveError otherwise."""
     query = text.strip()
-    address = _address(query)
+    address = device_address(query)
     if address is not None:
         device = network.device(address)
         if device is None:
@@ -87,21 +89,42 @@ def ha_entity_ids(target: Device | Scene, network: Network, registry: HaRegistry
     for entity in registry.entities:
         if entity.get("platform") != DOMAIN:
             continue
-        suffix = controller_suffix(str(entity.get("unique_id", "")), network.uuid)
-        if suffix is None:
-            continue
-        address = suffix.split("_", 1)[0]
         if isinstance(target, Scene):
-            matches = address == target.address
+            suffix = controller_suffix(str(entity.get("unique_id", "")), network.uuid)
+            matches = suffix is not None and suffix.split("_", 1)[0] == target.address
         else:
-            button = ButtonAddress.try_parse(address)
-            matches = button is not None and button.device == target.address
+            place = place_of(entity, network.uuid)
+            matches = place is not None and place.button.device == target.address
         if matches:
             found.append(str(entity["entity_id"]))
     return tuple(sorted(found))
 
 
-def _address(text: str) -> InsteonAddress | None:
+@dataclass(frozen=True)
+class EntityPlace:
+    """Where an isy994 entity sits: its domain, its Button, and the rest of its unique ID (`OL` in `..._OL`)."""
+
+    domain: str
+    button: ButtonAddress
+    suffix: str
+
+
+def place_of(entity: dict[str, Any], uuid: str) -> EntityPlace | None:
+    """Where an isy994 entity sits, from its ID and its unique ID `<uuid>_AA BB CC 1[_OL]`.
+
+    None for a Scene's switch, a variable, or another Controller's entity.
+    Button addresses hold spaces, never underscores, so the first `_` ends it.
+    """
+    suffix = controller_suffix(str(entity.get("unique_id", "")), uuid)
+    address, _, rest = (suffix or "").partition("_")
+    button = ButtonAddress.try_parse(address)
+    if button is None:
+        return None
+    return EntityPlace(str(entity.get("entity_id", "")).split(".", 1)[0], button, rest)
+
+
+def device_address(text: str) -> InsteonAddress | None:
+    """The Insteon Address `text` gives as an Insteon or Button address, or None."""
     button = ButtonAddress.try_parse(text)
     return button.device if button else InsteonAddress.try_parse(text)
 

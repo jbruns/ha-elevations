@@ -19,6 +19,7 @@ from insteon import programs as programs_command
 from insteon import prune as prune_command
 from insteon import refs as refs_command
 from insteon import remove as remove_command
+from insteon import replace as replace_command
 from insteon import restore as restore_command
 from insteon import scene as scene_command
 from insteon.config import ENV_PRIVATE_DIR, REPO, ConfigError, Private
@@ -120,6 +121,19 @@ def _parser() -> argparse.ArgumentParser:
     add.add_argument("--battery", action="store_true", help="a Battery Device: prompt to hold its Set button first")
     add.add_argument("--apply", action="store_true", help=apply_help)
 
+    replace = commands.add_parser(
+        "replace", help="IoX's Replace of OLD with NEW (already added), then Reconcile HA keeping OLD's entity IDs"
+    )
+    replace.add_argument("old", metavar="OLD", help="the Device to replace: Insteon Address, IoX name or HA entity ID")
+    replace.add_argument("new", metavar="NEW", help="the Device replacing it, already added to IoX and HA")
+    replace.add_argument(
+        "--resume", action="store_true", help="IoX's Replace has already run and OLD is gone from it: only Reconcile HA"
+    )
+    replace.add_argument("--apply", action="store_true", help=apply_help)
+    replace.add_argument(
+        "--repo", type=Path, default=REPO, help="the checkout whose References to list (default: %(default)s)"
+    )
+
     scene = commands.add_parser("scene", help="create and delete Scenes, and edit them Button by Button")
     actions = scene.add_subparsers(dest="action", required=True)
     create = actions.add_parser("create", help="create an empty Scene")
@@ -172,6 +186,9 @@ async def run(argv: Sequence[str] | None = None) -> int:
             await _remove(args, private)
         elif args.command == "add":
             await _add(args, private)
+        elif args.command == "replace":
+            if not await _replace(args, private):
+                return 1
         elif args.command == "scene":
             await _scene(args, private)
     except (ConfigError, IoxError, HaError, ResolveError, LockHeld, refs_command.RepoError) as error:
@@ -348,6 +365,26 @@ async def _add(args: argparse.Namespace, private: Private) -> None:
             progress=_progress,
         )
     print(add_command.render(result), end="")
+
+
+async def _replace(args: argparse.Namespace, private: Private) -> bool:
+    """Whether it finished, or was a dry run."""
+    backup = _iox_backup(private)
+    async with _iox(private) as iox, _ha(private, args) as ha:
+        result = await replace_command.replace(
+            iox,
+            ha,
+            _rails(private, args.apply),
+            backup,
+            args.old,
+            args.new,
+            repo=args.repo,
+            resume=args.resume,
+            prompt=_ask,
+            progress=_progress,
+        )
+    print(replace_command.render(result), end="")
+    return result.finished or not args.apply
 
 
 async def _scene(args: argparse.Namespace, private: Private) -> None:

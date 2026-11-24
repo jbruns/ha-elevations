@@ -21,6 +21,7 @@ uv run insteon restore 1A.2B.3C          # Restore a Device's Links (a dry run; 
 uv run insteon restore modem             # Restore the Modem's Links
 uv run insteon remove 1A.2B.3C --clean   # the removal plan, and the diffs to live HA
 uv run insteon add 1A.2B.3C "Example"    # add a Device, erasing its Links
+uv run insteon replace 1A.2B.3C 4D.5E.6F # Replace a Device with one already added, keeping its entity IDs
 uv run insteon scene add "Example Scene" "1A 2B 3C 3" --responder
 ```
 
@@ -138,6 +139,24 @@ References are always listed: live HA's as the edits `--clean` would make or as 
 
 Adds a Device by its Insteon Address (`AddNode`), erasing its Links. `--from-links` keeps them instead, and has IoX add the Devices they name and build Scenes from them. `--battery` prompts to hold the Set button first; a new Device that ignores the Modem may need that too. Added without it, a Battery Device is flagged, since IoX may hold Pending Writes for it. Then it Reconciles HA and prints the new entity IDs.
 
+### `replace OLD NEW`
+
+Runs IoX's Replace (`ReplaceDevice`), which moves OLD's Scenes and Links onto NEW, then Reconciles HA so every Reference to OLD's entities keeps working with no edits. IoX replaces a Device only with one it already has, of the same type, so add NEW first with `insteon add NEW NAME --apply`. That also gives HA NEW's entities, which the tool needs in order to plan. A NEW that is already in Scenes is refused. In order:
+
+1. IoX's Replace. For a Battery Device, the tool asks the Administrator to hold NEW's Set button first.
+2. Reads the Controller again. Unless OLD is gone and NEW is there, the command stops with HA untouched.
+3. Saves the renames to make, with the old entities' settings, as `replace-renames.json` in the backup folder. Then it reloads the isy994 integration, which removes OLD's entities, and removes the Stale HA Devices, as `prune` does.
+4. Renames each of NEW's entities to the ID of OLD's entity for the same Button (`config/entity_registry/update` with `new_entity_id`), and carries over its display name, icon, area, labels, aliases, and disabled and hidden state.
+5. Gives NEW's HA device the area, name and labels of OLD's.
+
+Entities are matched on domain, Button number and unique-ID suffix (`_OL` and the like). Two rules of HA's entity registry set the order. HA lets an entity take an ID that only a deleted entity held, so the renames wait until the reload has removed OLD's entities. HA also gives a deleted entity's ID and settings back if its unique ID returns, so step 2 makes sure IoX no longer has OLD. Before the first rename, the tool checks that every old ID is free: not registered, and not in HA's state machine. If one isn't, no entity is renamed. From step 3 on, OLD's entities are gone from HA. So if any later step fails or stops, the command prints the renames still to make by hand, with the saved file, and exits with status 1.
+
+If the Buttons don't match one for one, the command stops after step 2 and prints OLD's References, as `refs` does. That happens when the Devices have different Buttons (a dimmer replaced by a keypad) or when an old entity has no counterpart. HA is left alone, but its next isy994 reload or restart removes OLD's entities, so fix the References first. New entities with no old counterpart keep their IDs.
+
+References that name OLD's HA device instead of an entity, such as device triggers, can't follow it, because NEW has its own HA device. They are listed for a hand edit, and so are helpers on OLD's HA device, such as `switch_as_x`.
+
+If IoX accepts the Replace but still has OLD, step 2 stops. Old firmware asked for a reboot after a Replace. Once the Controller no longer has OLD, run the command again with `--resume`. It skips steps 1 and 2 and only Reconciles HA, and refuses while IoX still has OLD. Without `--resume`, an OLD that IoX no longer has is refused, so a Device removed some other way is never taken for a Replace. Don't reload the isy994 integration or restart HA in between, or OLD's entities, and with them the old IDs to rename to, are gone. The registry backup of the first run (`ha-entities.json`) still holds them, for renaming by hand.
+
 ### `scene`
 
 ```sh
@@ -177,7 +196,7 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 | `insteon/rails.py` | Dry run, lock, backups and the Battery Device prompt |
 | `insteon/config.py` | Finds the private folder and reads the credentials |
 | `insteon/clean.py` | Taking a Device's References out of live HA's configs |
-| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/lifecycle.py`, `insteon/audit.py`, `insteon/refs.py`, `insteon/restore.py`, `insteon/remove.py`, `insteon/add.py`, `insteon/scene.py` | The commands |
+| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/lifecycle.py`, `insteon/audit.py`, `insteon/refs.py`, `insteon/restore.py`, `insteon/remove.py`, `insteon/add.py`, `insteon/replace.py`, `insteon/scene.py` | The commands |
 | `insteon/cli.py` | The `insteon` entry point |
 
 ## Tests

@@ -13,6 +13,7 @@ import tarfile
 import contextlib
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,7 @@ CONF_TAR = "sudo -S -p '' tar -cf - -C /var/isy/FILES CONF"
 WRITES = frozenset(
     {
         "AddNode", "RemoveNode", "MoveNode", "RemoveFromGroup", "AddGroup", "RemoveGroup",
-        "SetSceneProfile", "WriteDeviceUpdates", "RestoreDeviceFromNode", "ReplaceModem",
+        "SetSceneProfile", "WriteDeviceUpdates", "RestoreDeviceFromNode", "ReplaceModem", "ReplaceDevice",
     }
 )
 # The REST calls that change IoX: a program's enable or disable.
@@ -111,6 +112,8 @@ class FakeIox:
     """Nodes IoX reports Pending Writes for (`_3` WH) after a write to them, rather than writing (`_3` WD)."""
     written_later: set[str] = field(default_factory=set)
     """Nodes IoX holds Pending Writes for at first (`_3` WH), then writes (`_3` WD) just after the call returns."""
+    replace_keeps_old: bool = False
+    """ReplaceDevice answers 200 but changes nothing yet, as an IoX that wants a reboot first might."""
     _sockets: list[web.WebSocketResponse] = field(default_factory=list)
     _later: list[asyncio.Future[None]] = field(default_factory=list)
     _stop: asyncio.Event = field(default_factory=asyncio.Event)
@@ -267,9 +270,28 @@ class FakeIox:
                     members.remove(link)
         elif element == "AddNode" and params["id"] in self.addable:
             root.append(ET.fromstring(self.addable[params["id"]]))
+        elif element == "ReplaceDevice" and not self.replace_keeps_old:
+            # The old Device's Scenes move onto the new one, Button by Button,
+            # and the new Device takes the old one's name; the old one is gone.
+            old, new = (params[key].rsplit(" ", 1)[0] + " " for key in ("node", "NewNode"))
+            old_nodes = [n for n in root.findall("node") if (n.findtext("pnode") or "").startswith(old)]
+            name = next((n.findtext("name") for n in old_nodes if n.findtext("address") == n.findtext("pnode")), "")
+            for node in old_nodes:
+                root.remove(node)
+            for node in root.findall("node"):
+                if node.findtext("address") == node.findtext("pnode") and (node.findtext("pnode") or "").startswith(new):
+                    node.find("name").text = name
+            for members in root.iter("members"):
+                for link in members:
+                    if (link.text or "").startswith(old):
+                        link.text = new + link.text[len(old):]
         elif element == "RestoreDeviceFromNode" and params["node"] in self.actual:
             self.actual[params["node"]] = list(self.expected.get(params["node"], []))
         self.nodes_xml = ET.tostring(root, encoding="unicode")
+
+    def node_addresses(self) -> frozenset[str]:
+        """Every node address the fake Controller has now, as IoX writes it."""
+        return frozenset(n.findtext("address", "") for n in ET.fromstring(self.nodes_xml).iter("node"))
 
     def writes(self) -> list[tuple[str, dict[str, str]]]:
         """Every write the tool sent: each SOAP write's body element and parameters, in order,
@@ -438,6 +460,18 @@ class FakeHa:
     """`lovelace/config` by url_path (None for the default dashboard). Missing: config_not_found."""
     configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Editable automation, script and scene configs, by entity ID, as HA's config API serves them."""
+    refuse_updates: set[str] = field(default_factory=set)
+    """Entity IDs whose `config/entity_registry/update` HA refuses."""
+    refuse: set[str] = field(default_factory=set)
+    """Command types HA answers with an error."""
+    controller: Callable[[], frozenset[str]] | None = None
+    """The node addresses the Controller has. When set, a reload works as isy994's does: it deletes each
+    isy994 entity whose Button the Controller no longer has, and brings back a deleted one whose Button
+    returned, with its old ID if that is free (HA's restore on re-add)."""
+    deleted: list[dict[str, Any]] = field(default_factory=list)
+    """Entities HA deleted, kept to give back their ID and settings if their unique ID returns."""
+    extra_states: set[str] = field(default_factory=set)
+    """Entity IDs in HA's state machine with no registry entry."""
     reload_drops: set[str] = field(default_factory=set)
     """Entity IDs a reload of the isy994 entry removes: those the Controller no longer has."""
     close_after: int | None = None
@@ -449,7 +483,10 @@ class FakeHa:
 
     def writes(self) -> list[dict[str, Any]]:
         """Every command that changes Home Assistant, in order."""
-        changing = {"config/device_registry/remove_config_entry", "call_service", "lovelace/config/save", "rest POST"}
+        changing = {
+            "config/device_registry/remove_config_entry", "config/entity_registry/update", "config/device_registry/update",
+            "call_service", "lovelace/config/save", "rest POST",
+        }
         return [c for c in self.commands if c["type"] in changing]
 
     def _result(self, message: dict[str, Any]) -> dict[str, Any]:
@@ -475,12 +512,14 @@ class FakeHa:
         if kind == "lovelace/config/save":
             self.dashboard_configs[message.get("url_path")] = message["config"]
             return {"success": True, "result": None}
+        if kind in self.refuse:
+            return {"success": False, "error": {"code": "home_assistant_error", "message": "refused"}}
         if kind == "call_service":
             if (message["domain"], message["service"]) == ("homeassistant", "reload_config_entry"):
-                self.entities = [e for e in self.entities if e["entity_id"] not in self.reload_drops]
+                self._reload()
             return {"success": True, "result": {"context": {}}}
         if kind == "get_states":
-            states = [{"entity_id": "light.example_dimmer", "state": "on", "attributes": {}}]
+            states = [{"entity_id": entity_id, "state": "on", "attributes": {}} for entity_id in sorted(self._states())]
             states += [
                 {"entity_id": entity_id, "state": "scening", "attributes": {"id": config["id"]}}
                 for entity_id, config in self.configs.items()
@@ -497,6 +536,14 @@ class FakeHa:
         if kind == "config_entries/get":
             domain = message.get("domain")
             return {"success": True, "result": [e for e in self.entries if domain in (None, e["domain"])]}
+        if kind == "config/entity_registry/update":
+            return self._update_entity(message)
+        if kind == "config/device_registry/update":
+            device = next((d for d in self.devices if d["id"] == message["device_id"]), None)
+            if device is None:
+                return {"success": False, "error": {"code": "not_found", "message": "Device not found"}}
+            device.update({key: message[key] for key in ("area_id", "name_by_user", "labels") if key in message})
+            return {"success": True, "result": device}
         if kind == "config/device_registry/remove_config_entry":
             device = next((d for d in self.devices if d["id"] == message["device_id"]), None)
             if device is None or message["config_entry_id"] not in device["config_entries"]:
@@ -507,6 +554,53 @@ class FakeHa:
                 self.entities = [e for e in self.entities if e["device_id"] != device["id"]]
             return {"success": True, "result": {"config_entries": device["config_entries"]}}
         return {"success": False, "error": {"code": "unknown_command", "message": kind}}
+
+    def _states(self) -> set[str]:
+        return {e["entity_id"] for e in self.entities if not e.get("disabled_by")} | self.extra_states
+
+    def _reload(self) -> None:
+        dropped = [e for e in self.entities if e["entity_id"] in self.reload_drops]
+        if self.controller is not None:
+            present = self.controller()
+
+            def gone(entity: dict[str, Any]) -> bool:
+                address = entity["unique_id"].removeprefix(f"{UUID}_").split("_", 1)[0]
+                return entity["platform"] == "isy994" and " " in address and address not in present
+
+            dropped += [e for e in self.entities if gone(e) and e not in dropped]
+            for entity in [e for e in self.deleted if not gone(e)]:
+                self.deleted.remove(entity)
+                taken = {e["entity_id"] for e in self.entities}
+                if entity["entity_id"] in taken:
+                    entity = {**entity, "entity_id": entity["entity_id"] + "_2"}
+                self.entities.append(entity)
+        self.entities = [e for e in self.entities if e not in dropped]
+        self.deleted += dropped
+
+    def _update_entity(self, message: dict[str, Any]) -> dict[str, Any]:
+        """As HA's `config/entity_registry/update`: a new ID must keep its domain and be free.
+
+        A deleted entity's ID is free: HA keeps deleted entities only to give
+        their settings back if the same unique ID returns.
+        """
+        entity = next((e for e in self.entities if e["entity_id"] == message["entity_id"]), None)
+        if entity is None:
+            return {"success": False, "error": {"code": "not_found", "message": "Entity not found"}}
+        if entity["entity_id"] in self.refuse_updates:
+            return {"success": False, "error": {"code": "home_assistant_error", "message": "refused"}}
+        for key in ("disabled_by", "hidden_by"):
+            if message.get(key) not in (None, "user"):
+                return {"success": False, "error": {"code": "invalid_format", "message": f"{key} must be user or null"}}
+        new_id = message.get("new_entity_id")
+        if new_id and new_id != entity["entity_id"]:
+            if new_id.split(".", 1)[0] != entity["entity_id"].split(".", 1)[0]:
+                return {"success": False, "error": {"code": "invalid_format", "message": "Can't change domain"}}
+            if any(e["entity_id"] == new_id for e in self.entities) or new_id in self.extra_states:
+                return {"success": False, "error": {"code": "invalid_info", "message": "Entity with this ID is already registered"}}
+            entity["entity_id"] = new_id
+        keys = ("name", "icon", "area_id", "disabled_by", "hidden_by", "labels", "aliases")
+        entity.update({key: message[key] for key in keys if key in message})
+        return {"success": True, "result": {"entity_entry": entity}}
 
     async def _websocket(self, request: web.Request) -> web.StreamResponse:
         ws = web.WebSocketResponse()

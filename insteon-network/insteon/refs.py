@@ -32,7 +32,7 @@ from typing import Any
 
 import yaml
 
-from insteon.address import ButtonAddress
+from insteon.address import ButtonAddress, InsteonAddress
 from insteon.ha import DOMAIN, HaClient, HaError, HaRegistry, controller_suffix
 from insteon.iox import IoxClient
 from insteon.network import Device, Network
@@ -95,7 +95,11 @@ class RefsReport:
 async def refs(iox: IoxClient, ha: HaClient, name: str, *, repo: Path) -> RefsReport:
     network = await iox.network()
     registry = await ha.registry()
-    device = resolve_device(name, network, registry)
+    return await report(ha, resolve_device(name, network, registry), network, registry, repo=repo)
+
+
+async def report(ha: HaClient, device: Device, network: Network, registry: HaRegistry, *, repo: Path) -> RefsReport:
+    """Every Reference to the entities of a Device already resolved."""
     entities = device_entities(device, network, registry)
     entity_ids = [entity.entity_id for entity in entities]
 
@@ -157,11 +161,16 @@ def device_entities(device: Device, network: Network, registry: HaRegistry) -> l
 
 def ha_device_ids(device: Device, network: Network, registry: HaRegistry) -> tuple[str, ...]:
     """The isy994 HA devices whose identifier names one of the Device's Buttons."""
+    return ha_device_ids_at(device.address, network, registry)
+
+
+def ha_device_ids_at(address: InsteonAddress, network: Network, registry: HaRegistry) -> tuple[str, ...]:
+    """The isy994 HA devices whose identifier names a Button at `address`, which the Controller may no longer have."""
 
     def names_a_button(identifier: str) -> bool:
         suffix = controller_suffix(identifier, network.uuid)
         button = ButtonAddress.try_parse(suffix) if suffix else None
-        return button is not None and button.device == device.address
+        return button is not None and button.device == address
 
     return tuple(
         sorted(
