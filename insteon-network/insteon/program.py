@@ -7,6 +7,7 @@ as its raw XML in an `Undecoded`, so an export never drops logic silently.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -140,6 +141,27 @@ class Program:
     def iox_id(self) -> str:
         """The id as IoX's REST paths and D2D file names write it, such as `000A`."""
         return f"{self.id:04X}"
+
+
+def folders_above(program: Program, programs: Sequence[Program]) -> tuple[Program, ...]:
+    """The folders that hold a program or folder, nearest first."""
+    by_id = {p.id: p for p in programs}
+    found: list[Program] = []
+    parent, seen = program.parent, {program.id}
+    while parent is not None and parent not in seen and (folder := by_id.get(parent)) is not None:
+        seen.add(parent)
+        found.append(folder)
+        parent = folder.parent
+    return tuple(found)
+
+
+def folder_path(program: Program, programs: Sequence[Program]) -> str:
+    """The folder path to a program or folder, such as `My Programs/Lights/`.
+
+    A folder's path ends with its own name; a program's ends with its folder's.
+    """
+    folders = (program, *folders_above(program, programs)) if program.is_folder else folders_above(program, programs)
+    return "".join(f"{folder.name}/" for folder in reversed(folders))
 
 
 @dataclass(frozen=True)
