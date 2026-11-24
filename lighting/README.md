@@ -94,6 +94,8 @@ Each Insteon light has a cross-linked room Scene, so a press at the wall already
 - Changes from or to `unavailable` or `unknown` are ignored, so restarts and reloads don't switch the Scene.
 - The Scene holds only keypad buttons, not the light, and the blueprint never triggers on the Scene, so switching it can't feed back into the light.
 
+It runs only when the light changes. Unlike the IoX program, it doesn't correct a keypad button that changes on its own while the light stays the same.
+
 It reads isy994's `group_all_on` attribute to tell "every button lit" from "some buttons lit".
 
 ### Set up

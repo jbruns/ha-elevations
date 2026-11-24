@@ -29,9 +29,14 @@ class SettableLight(LightEntity):
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def set(
-        self, *, on: bool, brightness: int | None = None, available: bool = True
+        self,
+        *,
+        on: bool | None,
+        brightness: int | None = None,
+        available: bool = True,
     ) -> None:
-        """Set the light as if changed by hand, without recording a call."""
+        """Set the light as if changed by hand, without recording a call.
+        on=None makes it unknown."""
         self._attr_available = available
         self._apply(on=on, brightness=brightness)
 
@@ -44,7 +49,7 @@ class SettableLight(LightEntity):
         self.calls.append(("turn_off", _call_data(kwargs)))
         self._apply(on=False)
 
-    def _apply(self, *, on: bool, brightness: int | None = None) -> None:
+    def _apply(self, *, on: bool | None, brightness: int | None = None) -> None:
         self._attr_is_on = on
         if brightness is not None:
             self._attr_brightness = brightness
@@ -109,7 +114,6 @@ class Lights:
     follower: SettableLight
     other_follower: SettableLight
     leader_switch: SettableSwitch
-    keypad_sync: SettableSceneSwitch
 
 
 @pytest.fixture
@@ -118,10 +122,29 @@ async def lights(hass: HomeAssistant) -> Lights:
     follower = SettableLight("light.example_follower", "Example Follower")
     other_follower = SettableLight("light.example_other_follower", "Example Other Follower")
     leader_switch = SettableSwitch("switch.example_leader", "Example Leader")
-    keypad_sync = SettableSceneSwitch("switch.example_keypad_sync", "Example Keypad Sync")
     setup_test_component_platform(hass, "light", [leader_light, follower, other_follower])
-    setup_test_component_platform(hass, "switch", [leader_switch, keypad_sync])
+    setup_test_component_platform(hass, "switch", [leader_switch])
     assert await async_setup_component(hass, "light", {"light": {"platform": "test"}})
     assert await async_setup_component(hass, "switch", {"switch": {"platform": "test"}})
     await hass.async_block_till_done()
-    return Lights(leader_light, follower, other_follower, leader_switch, keypad_sync)
+    return Lights(leader_light, follower, other_follower, leader_switch)
+
+
+@dataclass
+class KeypadLights:
+    """A light and the Keypad Sync Scene that holds its keypad buttons."""
+
+    light: SettableLight
+    keypad_sync_scene: SettableSceneSwitch
+
+
+@pytest.fixture
+async def keypad_lights(hass: HomeAssistant) -> KeypadLights:
+    light = SettableLight("light.example", "Example")
+    scene = SettableSceneSwitch("switch.example_keypad_sync", "Example Keypad Sync")
+    setup_test_component_platform(hass, "light", [light])
+    setup_test_component_platform(hass, "switch", [scene])
+    assert await async_setup_component(hass, "light", {"light": {"platform": "test"}})
+    assert await async_setup_component(hass, "switch", {"switch": {"platform": "test"}})
+    await hass.async_block_till_done()
+    return KeypadLights(light, scene)

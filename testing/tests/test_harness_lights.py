@@ -2,7 +2,7 @@
 
 from homeassistant.core import HomeAssistant
 
-from testing.lights import Lights
+from testing.lights import KeypadLights, Lights
 
 
 async def call(hass: HomeAssistant, domain: str, service: str, data: dict) -> None:
@@ -36,9 +36,9 @@ async def test_a_test_sets_light_and_switch_state_without_recording_calls(
 
 
 async def test_a_scene_switch_reports_whether_all_its_members_are_on(
-    hass: HomeAssistant, lights: Lights
+    hass: HomeAssistant, keypad_lights: KeypadLights
 ) -> None:
-    scene = lights.keypad_sync
+    scene = keypad_lights.keypad_sync_scene
 
     await scene.set(on=True, all_on=False)
     assert hass.states.get(scene.entity_id).state == "on"
@@ -53,9 +53,12 @@ async def test_a_scene_switch_reports_whether_all_its_members_are_on(
     assert scene.calls == [("turn_on", {}), ("turn_off", {})]
 
 
-async def test_a_light_can_be_made_unavailable(hass: HomeAssistant, lights: Lights) -> None:
-    await lights.leader_light.set(on=True, available=False)
-    assert hass.states.get(lights.leader_light.entity_id).state == "unavailable"
+async def test_a_light_can_be_made_unavailable(
+    hass: HomeAssistant, keypad_lights: KeypadLights
+) -> None:
+    light = keypad_lights.light
+    await light.set(on=True, available=False)
+    assert hass.states.get(light.entity_id).state == "unavailable"
 
-    await lights.leader_light.set(on=True)
-    assert hass.states.get(lights.leader_light.entity_id).state == "on"
+    await light.set(on=True)
+    assert hass.states.get(light.entity_id).state == "on"
