@@ -61,7 +61,7 @@ This command is read-only. It exports every IoX program and variable as text, th
 
 Each variable shows its type, id, name, value, init, and the programs that use it.
 
-The list comes from `/rest/programs` and `/rest/vars`. The bodies come from the D2D files (`/var/isy/FILES/CONF/D2D/*.PGM`) over SSH. Only root can read them, so the tool runs one `tar` under `sudo -S` and sends the SSH password on stdin, never on a command line. Statements are decoded in the shapes IoX 6.0.5 writes. Any other shape is printed raw as `[not decoded]` and counted at the top, so no logic is dropped silently.
+The list comes from `/rest/programs` and `/rest/vars`. The bodies come from the D2D files (`/var/isy/FILES/CONF/D2D/*.PGM`) over SSH. Only root can read them, so the tool runs one `tar` under `sudo -S` and sends the SSH password on stdin, never on a command line. Statements are decoded in the shapes IoX 6.0.5 writes. Any other shape is printed raw as `[not decoded]` and counted at the top, and a file that will not parse is printed whole as `[file not parsed]`, so no logic is dropped silently. The Devices such statements name still count toward possible duplicates.
 
 What HA automations reference comes from Home Assistant's own `search/related`: the entities and devices an automation names. An automation that reaches a Device only through an area or label isn't matched.
 

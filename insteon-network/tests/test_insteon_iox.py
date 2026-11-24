@@ -200,3 +200,14 @@ async def test_an_unknown_host_key_fails_and_says_how_to_trust_it(eisy_ssh: SshE
 
     with pytest.raises(IoxError, match="known_hosts"):
         await files(endpoint).program_bodies()
+
+
+async def test_only_files_named_by_a_hex_program_id_are_read_as_programs(
+    eisy_ssh: SshEndpoint, fake_ssh: FakeEisySsh
+) -> None:
+    fake_ssh.files["D2D/notes.PGM"] = b"not a program"
+    fake_ssh.files["D2D/README.txt"] = b"not a program"
+
+    bodies = await files(eisy_ssh).program_bodies()
+
+    assert sorted(bodies) == [0x01, 0x02, 0x03, 0x04, 0x0A]

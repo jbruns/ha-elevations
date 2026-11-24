@@ -72,6 +72,8 @@ class Undecoded:
     xml: str
     nodes: tuple[str, ...] = ()
     """The nodes its XML names, so its Devices still count."""
+    whole_file: bool = False
+    """The whole D2D file, which did not parse as XML."""
 
 
 Statement = Condition | SetVariable | Wait | Command | Undecoded

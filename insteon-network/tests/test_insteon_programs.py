@@ -194,11 +194,13 @@ async def test_devices_named_in_statements_not_decoded_still_count(
 async def test_an_unreadable_d2d_file_is_shown_raw_and_the_export_goes_on(
     iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_ssh: FakeEisySsh
 ) -> None:
-    fake_ssh.files["D2D/0003.PGM"] = b"<d2d><trigger>broken"
+    fake_ssh.files["D2D/0003.PGM"] = b'<d2d><trigger><status id="ST" node="AA BB CC 1" broken'
 
     text = await exported(iox_url, ha_url, eisy_ssh)
 
-    assert "[not decoded] <d2d><trigger>broken" in block(text, "Example Dimmer Level")
+    entry = block(text, "Example Dimmer Level")
+    assert '[file not parsed] <d2d><trigger><status id="ST" node="AA BB CC 1" broken' in entry
+    assert "automation.example_dimmer_level (Example dimmer level): light.example_dimmer" in entry
     assert "Example Follow  [0004]" in text
 
 

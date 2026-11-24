@@ -285,6 +285,8 @@ def _statement(statement: Statement, result: ProgramsExport, *, first: bool = Fa
             words = [f"Set {_node(node, result)}", _COMMANDS.get(command, command)]
             words += [_variable(parameter, result) for parameter in parameters]
             return " ".join(words)
+        case Undecoded(xml=xml, whole_file=True):
+            return f"[file not parsed] {xml}"
         case Undecoded(xml=xml):
             return f"[not decoded] {xml}"
 

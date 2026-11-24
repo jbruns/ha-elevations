@@ -16,6 +16,7 @@ import base64
 import contextlib
 import copy
 import io
+import re
 import sys
 import tarfile
 import xml.etree.ElementTree as ET
@@ -59,6 +60,9 @@ _CONTROLLER = "16"
 _STREAM_GRACE = 5.0
 # IoX's config files, which only root may read (iox-api.md §5).
 CONF = "/var/isy/FILES/CONF"
+_HEX_ID = re.compile(r"[0-9A-Fa-f]{1,8}")
+# The nodes a D2D file names, found even when the file won't parse.
+_NODE_ATTRIBUTE = re.compile(r'\bnode="([^"]+)"')
 # IoX families. A node with no family, or family 1, is Insteon.
 _INSTEON_FAMILIES = {None, "0", "1"}
 _FAMILY_NAMES = {
@@ -374,13 +378,14 @@ class IoxFiles:
         bodies = {}
         for name, data in (await self._read_folder("D2D")).items():
             stem, _, extension = name.rpartition("/")[2].partition(".")
-            if extension.upper() != "PGM":
-                continue
+            if extension.upper() != "PGM" or not _HEX_ID.fullmatch(stem):
+                continue  # IoX names each program's file by its id in hex
             text = data.decode(errors="replace")
             try:
                 number, body = parse_program_body(text, name)
             except IoxError:
-                number, body = int(stem, 16), Body((Undecoded(text.strip()),), (), (), "")
+                nodes = tuple(dict.fromkeys(_NODE_ATTRIBUTE.findall(text)))
+                number, body = int(stem, 16), Body((Undecoded(text.strip(), nodes, whole_file=True),), (), (), "")
             bodies[number] = body
         return bodies
 
