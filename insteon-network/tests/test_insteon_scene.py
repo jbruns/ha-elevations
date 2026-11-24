@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from insteon_fakes import FakeHa, FakeIox, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, USER
+from insteon_fakes import FakeHa, FakeIox, PASSWORD, Rec, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, USER
 from insteon_fakes import eisy_ssh, fake_ha, fake_iox, fake_ssh, ha_url, iox_url  # noqa: F401 (fixtures)
 
 from insteon import scene as scene_command
@@ -127,3 +127,21 @@ async def test_deleting_a_scene_removes_it_and_writes_its_members(
         ("WriteDeviceUpdates", {"node": "AA BB CC 1"}),
     ]
     assert fake_ha.writes()[0]["service"] == "reload_config_entry"
+
+
+async def test_after_a_trailing_wh_only_the_member_whose_links_still_differ_has_pending_writes(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, tmp_path: Path
+) -> None:
+    keypad, dimmer = [Rec(0xA2, 0, 0x2A2B2C), Rec(0xE2, 3, 0xAABBCC)], [Rec(0xA2, 3, 0x112233)]
+    fake_iox.expected = {"11 22 33 1": list(keypad), "AA BB CC 1": list(dimmer)}
+    fake_iox.actual = {"11 22 33 1": list(keypad), "AA BB CC 1": []}
+    fake_iox.trailing_wh |= {"11 22 33 1", "AA BB CC 1"}
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, scene_command.delete("Example Three-Way"), apply=True)
+
+    assert fake_iox.device_reads() == ["11 22 33 1", "AA BB CC 1"]
+    assert [w.pending for w in result.writes.writes] == [False, True]
+    text = scene_command.render(result)
+    assert "11.22.33 Example Keypad" not in text
+    assert "AA.BB.CC Example Dimmer: Pending Writes remain: its Links still differ from the Controller's" in text
+    assert "Set" not in text

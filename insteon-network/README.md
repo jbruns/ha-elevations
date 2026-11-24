@@ -113,7 +113,7 @@ The output is printed only. Never paste it into tracked files: it holds real ent
 
 ### `restore DEVICE|modem`
 
-Restores a Device's Links (`RestoreDevice`) or the Modem's (`ReplaceModem`) from the Controller's database. The Modem's takes minutes for a full table. For a Battery Device, the tool asks the Administrator to hold its Set button first, and reports any Pending Writes IoX still holds afterwards. Run `audit` on it afterwards to confirm.
+Restores a Device's Links (`RestoreDevice`) or the Modem's (`ReplaceModem`) from the Controller's database. The Modem's takes minutes for a full table. For a Battery Device, the tool asks the Administrator to hold its Set button first. It reports any Pending Writes left afterwards, as the rails say. Run `audit` on it afterwards to confirm.
 
 ### `remove DEVICE [--clean]`
 
@@ -181,6 +181,7 @@ Every command that changes something follows these rails (`insteon/rails.py`):
   - Home Assistant config: `remove --clean` writes each automation, script, scene and dashboard config it is about to save, as read just before, to `ha-config.json` in the same folder. To undo an edit, POST that config back through HA's config API, or paste it into the editor. A full Home Assistant backup isn't taken: it is slow, and the edits it would cover are these.
 - **One Modem operation at a time**: each write waits until IoX reports it is no longer busy.
 - **Battery Devices**: the tool prompts the Administrator to hold the Set button before writing, one Device at a time. Then it waits on the event stream until IoX writes the Pending Writes, up to the 4 minutes the Device stays in linking mode, and reports any left.
+- **Powered Devices**: when IoX's last word on the Device during a write is that it still has Pending Writes (`_3` WH), the tool reads the Device's Links and compares them with the Controller's, as `audit` does. IoX can send that WH after a write that went through ([research/iox-api.md](./research/iox-api.md) §9). Pending Writes are reported only if the Links still differ, or the Device does not answer the read. The read takes about two Links a second, so it is skipped when IoX reports the Device written (`_3` WD).
 - The commands that change IoX need the SSH login even for a dry run, so a dry run shows the IoX backup can be taken.
 
 ## Code
@@ -193,7 +194,8 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 | `insteon/program.py` | IoX programs and variables, with no wire formats |
 | `insteon/ha.py` | Home Assistant's WebSocket API |
 | `insteon/resolve.py` | DEVICE argument → Device, and a Device or Scene → its HA entities |
-| `insteon/rails.py` | Dry run, lock, backups and the Battery Device prompt |
+| `insteon/rails.py` | Dry run, lock, backups, the Battery Device prompt, and confirming each write to a Device |
+| `insteon/compare.py` | The Link Audit's comparison of one Link table with the Controller's |
 | `insteon/config.py` | Finds the private folder and reads the credentials |
 | `insteon/clean.py` | Taking a Device's References out of live HA's configs |
 | `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/lifecycle.py`, `insteon/audit.py`, `insteon/refs.py`, `insteon/restore.py`, `insteon/remove.py`, `insteon/add.py`, `insteon/replace.py`, `insteon/scene.py` | The commands |

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from insteon_fakes import FakeHa, FakeIox, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, USER
+from insteon_fakes import FakeHa, FakeIox, PASSWORD, Rec, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, USER
 from insteon_fakes import eisy_ssh, fake_ha, fake_iox, fake_ssh, ha_url, iox_url  # noqa: F401 (fixtures)
 
 from insteon.add import AddResult, add, render
@@ -90,3 +90,27 @@ async def test_a_battery_device_is_added_only_once_the_administrator_holds_set(
 
     assert addable.writes() == []
     assert "was not added" in render(result)
+
+
+async def test_a_powered_device_whose_links_match_after_a_trailing_wh_has_no_pending_writes(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, addable: FakeIox, tmp_path: Path
+) -> None:
+    addable.expected["7A 7B 7C 1"] = addable.actual["7A 7B 7C 1"] = [Rec(0xA2, 0, 0x2A2B2C)]
+    addable.trailing_wh.add("7A 7B 7C 1")
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, apply=True)
+
+    assert addable.device_reads() == ["7A 7B 7C 1"]
+    assert "Pending Writes remain" not in render(result)
+
+
+async def test_a_powered_device_whose_links_still_differ_reports_pending_writes_without_asking_for_set(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, addable: FakeIox, tmp_path: Path
+) -> None:
+    addable.expected["7A 7B 7C 1"], addable.actual["7A 7B 7C 1"] = [Rec(0xA2, 0, 0x2A2B2C)], []
+    addable.trailing_wh.add("7A 7B 7C 1")
+
+    text = render(await run(iox_url, ha_url, eisy_ssh, tmp_path, apply=True))
+
+    assert "Pending Writes remain: its Links still differ from the Controller's" in text
+    assert "Set" not in text

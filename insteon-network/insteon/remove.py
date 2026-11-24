@@ -177,7 +177,9 @@ async def _clean_peers_and_modem(
         progress(f"Restoring {peer.label}, which differs from the Controller")
         try:
             result.restored.writes.append(
-                await write_device(peer, lambda clear, p=peer: iox.restore_device(p.primary, until_clear=clear), prompt)
+                await write_device(
+                    iox, peer, lambda clear, p=peer: iox.restore_device(p.primary, until_clear=clear), prompt
+                )
             )
         except IoxError as error:
             result.restored.failures.append(f"{peer.label}: {error}")

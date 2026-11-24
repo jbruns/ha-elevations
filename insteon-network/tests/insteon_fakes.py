@@ -112,6 +112,12 @@ class FakeIox:
     """Nodes IoX reports Pending Writes for (`_3` WH) after a write to them, rather than writing (`_3` WD)."""
     written_later: set[str] = field(default_factory=set)
     """Nodes IoX holds Pending Writes for at first (`_3` WH), then writes (`_3` WD) just after the call returns."""
+    trailing_wh: set[str] = field(default_factory=set)
+    """Buttons IoX reports Pending Writes for (`_3` WH) as a write to their Device ends, after writing it (`_3`
+    WD), as IoX 6.0.5 did live for a powered keypad whose write had gone through (#102)."""
+    keeps_links: set[str] = field(default_factory=set)
+    """Devices (primary Button, as IoX writes it) whose Links a Restore leaves as they were, as a Device that
+    missed the write would."""
     replace_keeps_old: bool = False
     """ReplaceDevice answers 200 but changes nothing yet, as an IoX that wants a reboot first might."""
     _sockets: list[web.WebSocketResponse] = field(default_factory=list)
@@ -225,7 +231,9 @@ class FakeIox:
         written = [_event("_3", "WH" if held else "WD", node)] if node else []
         await self._broadcast([_event("_5", "1"), *written])
         self._change(element, params)
-        await self._broadcast([_event("_5", "0")])
+        device = node.split()[:3]
+        trailing = [_event("_3", "WH", button) for button in sorted(self.trailing_wh) if button.split()[:3] == device]
+        await self._broadcast([*trailing, _event("_5", "0")])
         if node in self.written_later:
 
             async def write_later() -> None:
@@ -286,7 +294,8 @@ class FakeIox:
                     if (link.text or "").startswith(old):
                         link.text = new + link.text[len(old):]
         elif element == "RestoreDeviceFromNode" and params["node"] in self.actual:
-            self.actual[params["node"]] = list(self.expected.get(params["node"], []))
+            if params["node"] not in self.keeps_links:
+                self.actual[params["node"]] = list(self.expected.get(params["node"], []))
         self.nodes_xml = ET.tostring(root, encoding="unicode")
 
     def node_addresses(self) -> frozenset[str]:
