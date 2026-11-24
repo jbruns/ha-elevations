@@ -231,8 +231,8 @@ class FakeIox:
         written = [_event("_3", "WH" if held else "WD", node)] if node else []
         await self._broadcast([_event("_5", "1"), *written])
         self._change(element, params)
-        device = node.split()[:3]
-        trailing = [_event("_3", "WH", button) for button in sorted(self.trailing_wh) if button.split()[:3] == device]
+        devices = [params[key].split()[:3] for key in ("node", "id", "NewNode") if params.get(key)]
+        trailing = [_event("_3", "WH", button) for button in sorted(self.trailing_wh) if button.split()[:3] in devices]
         await self._broadcast([*trailing, _event("_5", "0")])
         if node in self.written_later:
 

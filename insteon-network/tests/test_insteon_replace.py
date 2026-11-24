@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from insteon_fakes import FakeHa, FakeIox, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, UUID, USER
+from insteon_fakes import FakeHa, FakeIox, PASSWORD, Rec, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, UUID, USER
 from insteon_fakes import eisy_ssh, fake_ha, fake_iox, fake_ssh, ha_url, iox_url  # noqa: F401 (fixtures)
 
 from insteon.ha import HaClient
@@ -420,3 +420,20 @@ async def test_a_failed_reload_says_the_old_entities_are_still_there_and_to_resu
     text = render(result)
     assert "so AA.BB.CC's entities are still in HA: run this again with --resume" in text
     assert "Rename these by hand" not in text
+
+
+@pytest.mark.parametrize("held, pending", [([Rec(0xA2, 0, 0x2A2B2C)], False), ([], True)])
+async def test_after_a_trailing_wh_the_new_device_has_pending_writes_only_if_its_links_still_differ(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_iox: FakeIox, replaceable: FakeHa, tmp_path: Path, repo: Path,
+    held: list[Rec], pending: bool,
+) -> None:
+    fake_iox.expected["7A 7B 7C 1"], fake_iox.actual["7A 7B 7C 1"] = [Rec(0xA2, 0, 0x2A2B2C)], held
+    fake_iox.trailing_wh.add("7A 7B 7C 1")
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+
+    assert fake_iox.device_reads() == ["7A 7B 7C 1"]
+    assert result.write is not None and result.write.pending is pending
+    text = render(result)
+    assert ("Pending Writes remain: its Links still differ from the Controller's" in text) is pending
+    assert "Set" not in text

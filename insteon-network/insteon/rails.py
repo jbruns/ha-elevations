@@ -1,9 +1,10 @@
-"""The rails every changing command runs on: dry run, the lock, and backups.
+"""The rails every changing command runs on: dry run, the lock, backups, and confirming writes.
 
 A command that changes something only plans and prints unless it was given
 `--apply`. When it applies, it first takes the lock, so only one command (and
 so one Modem operation) runs at a time, then backs up each system it is about
-to change, and only then changes anything.
+to change, and only then changes anything. Each write to a Device is then
+confirmed (`confirm_write`), so Pending Writes left on it are reported.
 
 What a backup holds:
 
@@ -31,7 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from insteon.compare import compare_table
+from insteon.table_audit import audit_table
 from insteon.ha import HaClient
 from insteon.iox import DeviceUnresponsive, IoxClient, IoxError, IoxFiles, Write
 from insteon.network import Device
@@ -173,7 +174,7 @@ class DeviceWrite:
             return f"an Unresponsive Device: {self.unresponsive}; its Pending Writes may remain"
         return (
             "Pending Writes remain: its Links still differ from the Controller's; "
-            "run `insteon restore` on it again, or check that it answers"
+            "run `insteon restore` on it, or check that it answers"
         )
 
 
@@ -201,14 +202,15 @@ async def confirm_write(iox: IoxClient, device: Device, write: Write) -> DeviceW
     and compared with the Controller's, as the Link Audit does: Pending Writes
     remain only if they differ.
     """
-    if device.battery or not write.pending(device.address):
-        return DeviceWrite(device, written=True, pending=write.pending(device.address))
+    pending = write.pending(device.address)
+    if device.battery or not pending:
+        return DeviceWrite(device, written=True, pending=pending)
     try:
         held = await iox.device_links(device.primary)
     except DeviceUnresponsive as error:
         return DeviceWrite(device, written=True, pending=True, unresponsive=str(error))
     network, modem = await iox.network(), await iox.modem()
-    table = compare_table(device.address, await iox.expected_links(device.primary), held, network, modem.address)
+    table = audit_table(device.address, await iox.expected_links(device.primary), held, network, modem.address)
     return DeviceWrite(device, written=True, pending=table.differs)
 
 

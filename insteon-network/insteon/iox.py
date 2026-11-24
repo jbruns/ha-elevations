@@ -142,8 +142,8 @@ class Write:
     def pending(self, device: InsteonAddress) -> bool:
         """IoX still holds Pending Writes for the Device: its last `_3` WH or WD event was WH.
 
-        A powered Device can get a WH after its write went through, so for one
-        this calls only for a read of its Links (`insteon.rails.confirm_write`).
+        A powered Device can get a WH after its write went through
+        (research/iox-api.md §9), so for one this is not proof.
         """
         last = None
         for event in self._node_events():

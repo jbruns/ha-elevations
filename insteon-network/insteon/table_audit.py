@@ -54,11 +54,15 @@ class TableAudit:
 
     @property
     def differs(self) -> bool:
-        """The table holds other Links than the Controller expects: a difference, or a Stale Link it does not expect."""
+        """The table holds other Links than the Controller expects: a difference, or a Stale Link it does not expect.
+
+        A Restore leaves out a Link the Controller does not expect, so such a
+        Stale Link differs; one the Controller expects is what it would write.
+        """
         return bool(self.differences) or not all(entry.expected for entry in self.stale)
 
 
-def compare_table(
+def audit_table(
     owner: InsteonAddress,
     expected: Sequence[Link],
     held: Sequence[Link],

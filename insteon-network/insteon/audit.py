@@ -6,7 +6,7 @@ no expected table for the Modem, so the Modem's expected Links are derived
 from the Devices' expected tables: every Link a Device holds with the Modem has
 its mirror in the Modem's table, with the same group and the roles swapped.
 
-Each table is compared as `insteon.compare` says.
+Each table is compared as `insteon.table_audit` says.
 
 Reading the Links of one Device is a Modem operation, so the whole audit holds
 the lock, though it changes nothing.
@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from insteon.address import InsteonAddress
-from insteon.compare import Difference, StaleLink, TableAudit, compare_table, in_use
+from insteon.table_audit import Difference, StaleLink, TableAudit, audit_table, in_use
 from insteon.ha import HaRegistry
 from insteon.iox import DEVICE_READ_TIMEOUT, DeviceUnresponsive, IoxClient
 from insteon.network import Device, Link, Modem, Network, Scene
@@ -144,7 +144,7 @@ async def audit_devices(
 
     unresponsive_addresses = _addresses(unresponsive)
     tables = [
-        compare_table(address, expected[address], links, network, modem.address, unresponsive_addresses)
+        audit_table(address, expected[address], links, network, modem.address, unresponsive_addresses)
         for address, links in held.items()
     ]
     if modem_links is not None:
@@ -157,7 +157,7 @@ async def audit_devices(
             if link.address == modem.address
         ]
         tables.append(
-            compare_table(
+            audit_table(
                 modem.address,
                 mirrored,
                 held_by_modem,

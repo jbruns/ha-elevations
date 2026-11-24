@@ -113,7 +113,7 @@ The output is printed only. Never paste it into tracked files: it holds real ent
 
 ### `restore DEVICE|modem`
 
-Restores a Device's Links (`RestoreDevice`) or the Modem's (`ReplaceModem`) from the Controller's database. The Modem's takes minutes for a full table. For a Battery Device, the tool asks the Administrator to hold its Set button first. It reports any Pending Writes left afterwards, as the rails say. Run `audit` on it afterwards to confirm.
+Restores a Device's Links (`RestoreDevice`) or the Modem's (`ReplaceModem`) from the Controller's database. The Modem's takes minutes for a full table. For a Battery Device, the tool asks the Administrator to hold its Set button first. It reports any Pending Writes left afterwards: for a Battery Device, those IoX still holds; for a powered Device, when its Links still differ from the Controller's or it does not answer a read of them. Run `audit` on it afterwards to confirm.
 
 ### `remove DEVICE [--clean]`
 
@@ -195,7 +195,7 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 | `insteon/ha.py` | Home Assistant's WebSocket API |
 | `insteon/resolve.py` | DEVICE argument → Device, and a Device or Scene → its HA entities |
 | `insteon/rails.py` | Dry run, lock, backups, the Battery Device prompt, and confirming each write to a Device |
-| `insteon/compare.py` | The Link Audit's comparison of one Link table with the Controller's |
+| `insteon/table_audit.py` | The Link Audit's comparison of one Link table with the Controller's |
 | `insteon/config.py` | Finds the private folder and reads the credentials |
 | `insteon/clean.py` | Taking a Device's References out of live HA's configs |
 | `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/lifecycle.py`, `insteon/audit.py`, `insteon/refs.py`, `insteon/restore.py`, `insteon/remove.py`, `insteon/add.py`, `insteon/replace.py`, `insteon/scene.py` | The commands |

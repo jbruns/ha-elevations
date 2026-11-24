@@ -159,7 +159,7 @@ async def test_a_powered_device_whose_links_still_differ_reports_pending_writes_
     assert result.write is not None and result.write.pending
     text = render(result)
     assert "11.22.33 Example Keypad: Pending Writes remain: its Links still differ from the Controller's" in text
-    assert "run `insteon restore` on it again, or check that it answers" in text
+    assert "run `insteon restore` on it, or check that it answers" in text
     assert "Set" not in text
 
 
