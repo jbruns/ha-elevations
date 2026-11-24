@@ -117,7 +117,7 @@ The binding is document/literal [live-WSDL]. So the XML element in the body is t
 
 Every other operation uses its own name as the body element. **V** (read from the live WSDL). There is no bound operation named `DiscoverNodes` or `CancelNodesDiscovery`. UDI's eisy-ui backend sends the element names [EISYUI-family]. **H**
 
-`DeviceSpecific` and `GetSysConf` are not in the published schema at all. `DeviceSpecific` works anyway (§4). **V**
+`DeviceSpecific` and `GetSysConf` are not in the published schema at all. Both work anyway (§4, §5). **V**
 
 ### Operations relevant to the Insteon network
 
@@ -150,7 +150,7 @@ Parameters are from [live-WSDL] with inherited fields expanded, in schema order.
 | Battery Device writes | `SetBatteryDeviceWriteMode` | `flag` (0/1) | **V** schema |
 | Full node config | `GetNodesConfig` | none; same shape as `/rest/nodes` | **V** schema |
 | Link tables | `DeviceSpecific` (unpublished) | `command`, `node`, `option`, `flag`=1, `CDATA`="0 -1" | **V** |
-| Read a config file | `GetSysConf` (unpublished) | `name` (e.g. `/CONF/D2D/<id>.PGM`) [ISYlib] | **M**; untested on IoX |
+| Read a config file | `GetSysConf` (unpublished) | `name` (e.g. `/CONF/D2D/<id>.PGM`) [ISYlib] | **V**: on IoX 6.0.5 it answers with the file's raw D2D XML. Unpublished, so the tool reads D2D over SSH instead |
 
 Where eisy-ui's 2026 code sends different parameter names from the live schema (`ReplaceDevice` above; `AddNode` with `ntype` in place of `type`; `WriteDeviceUpdates` and `RestoreDeviceFromNode` with `id` in place of `node`) [EISYUI-family], the live schema has not yet been tested against eisy-ui's names. **M**
 
@@ -191,16 +191,28 @@ Body: `<command>G_ISY_ALL|G_DEV_ALL|G_PLM_ALL|STOP</command><node>AA BB CC 1</no
 
 - SSH as the FreeBSD user `admin` works, and `sudo` is available. This user is separate from the IoX web user. **V**
 - IoX config lives under `/var/isy/FILES/CONF/`. **V**
-  - `CONF/D2D/*.PGM`: program bodies. **V**
+  - `CONF/D2D/*.PGM`: program bodies, one per program and folder (format below). **V**
+  - `CONF/D2D/` is readable only by root. As `admin`, `ls` gets "Permission denied". `sudo -S -p '' tar -cf - -C /var/isy/FILES/CONF D2D`, with the SSH password on stdin, returns the whole folder. **V**
   - `CONF/*.REC`: one file per Device address, probably the Controller's link model. **V** (files exist), **L** (meaning).
-  - `CONF/INTEGER.VAR`, `CONF/STATE.VAR`, `CONF/NET/<id>.RES` are inferred from paths that ISYlib and pyisyox request. **L**
+  - `CONF/INTEGER.VAR` and `CONF/STATE.VAR` hold the same `<CList>` as `/rest/vars/definitions/1` and `/2`. **V** (from an IoX backup). `CONF/NET/<id>.RES` is inferred from paths that ISYlib and pyisyox request. **L**
 - The service is `isy`. UDI support's credential reset is `sudo rm /var/isy/FILES/CONF/0.UCF; sudo service isy restart` — https://forum.universal-devices.com/topic/44956-password-access-to-java-console **M**
 - Reading these files gives a complete offline audit and backup. **Never write them while `isy` runs.** IoX keeps an in-memory model, and editing files does not program Devices. **M**
 
 ### Exporting programs for review
-1. List with `/rest/programs?subfolders=true`. **H**
-2. Bodies: read `/var/isy/FILES/CONF/D2D/*.PGM` over SSH. **V** Alternatives: SOAP `GetSysConf` [ISYlib] (**M**, untested), or `GET /api/triggers` for a JSON AST [NUCORE-wrapper] (**H**, needs the portal account).
+1. List with `/rest/programs?subfolders=true`. Ids are four hex digits (`000A`), and `parentId` names the folder. Folders carry `status` but no `enabled` or `runAtStartup`. **H**, **V**
+2. Bodies: read `/var/isy/FILES/CONF/D2D/*.PGM` over SSH, under `sudo`. **V** Alternatives: SOAP `GetSysConf` [ISYlib] (**V**, unpublished), or `GET /api/triggers` for a JSON AST [NUCORE-wrapper] (**H**, needs the portal account).
 3. Bodies use raw IDs. Resolve them against `/rest/nodes` and the variable definitions.
+
+### The D2D format
+Decoded from the Controller's own files (IoX 6.0.5, 31 files, 83 statements). **V** for the shapes below; IoX has other statement types (schedules, control events, notifications, program calls) whose shapes were not seen here.
+
+- Each file is one line of XML: `<d2d><trigger>` with `<id>` and `<parent>` in decimal (the file name is the id in hex), `<name>`, `<folder />` for a folder, `<if>`, `<then>`, `<else>` and `<comment>`.
+- In `<if>`, `<and />` or `<or />` comes before each condition, the first included.
+- A status condition: `<status id="ST" node="AA B C 1" op="ISNOT"><var uom="51" type="2" id="11" /></status>`, "Status of the Button is not the state variable 11".
+- Setting a variable: `<var id="11" type="2"><op>EQ</op><status id="ST" node="AA B C 1" uom="51"/></var>`, "$var = the Button's status".
+- `<wait><seconds>2</seconds></wait>`.
+- A command: `<cmd id="DON" node="12345"><p id=""><var uom="51" type="2" id="2" /></p></cmd>`, "Set the node On at the variable's level". `node` is a Button address or a Scene address.
+- `type` 1 is an integer variable and 2 a state variable, as in REST.
 
 ---
 
@@ -243,7 +255,7 @@ Body: `<command>G_ISY_ALL|G_DEV_ALL|G_PLM_ALL|STOP</command><node>AA BB CC 1</no
 
 1. Do the eisy-ui parameter names (`ntype`, `id` in place of `node`, the `ReplaceDevice` fields) also work, or only the live schema's names? Test one harmless call each way.
 2. Which SOAPACTION suffix does IoX expect for renamed operations: the operation name (`StartNodesDiscovery`) or the body element (`DiscoverNodes`)? Or does it dispatch on the body only?
-3. Does `GetSysConf` still exist on IoX 6? (SSH already covers the need.)
+3. ~~Does `GetSysConf` still exist on IoX 6?~~ Yes (§3). SSH already covers the need.
 4. Does `/rest/nodes/<addr>/write` still exist, or only `WriteDeviceUpdates`?
 5. The values `SetDeviceLinkMode` accepts for "auto / I1 / I2CS" linking.
 6. The exact flag mask for the Link Audit. Check it against `insteon_diag.py`.

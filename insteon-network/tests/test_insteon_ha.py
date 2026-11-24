@@ -35,3 +35,18 @@ async def test_a_wrong_token_is_reported_plainly(ha_url: str) -> None:
     with pytest.raises(HaError, match="refused the access token"):
         async with HaClient(ha_url, "wrong"):
             pass
+
+
+async def test_automations_list_the_entities_and_devices_each_references(ha_url: str) -> None:
+    async with HaClient(ha_url, TOKEN) as ha:
+        automations = {automation.entity_id: automation for automation in await ha.automations()}
+
+    assert sorted(automations) == [
+        "automation.example_bulb",
+        "automation.example_dimmer_level",
+        "automation.example_keypad_press",
+    ]
+    level = automations["automation.example_dimmer_level"]
+    assert level.name == "Example dimmer level"
+    assert level.entities == {"light.example_dimmer", "input_number.example_level"}
+    assert automations["automation.example_keypad_press"].devices == {"keypad"}

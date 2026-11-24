@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import pytest
-from insteon_fakes import FakeHa, PASSWORD, TOKEN, USER
-from insteon_fakes import fake_ha, fake_iox, ha_url, iox_url  # noqa: F401 (fixtures)
+from insteon_fakes import FakeHa, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, USER
+from insteon_fakes import eisy_ssh, fake_ha, fake_iox, fake_ssh, ha_url, iox_url  # noqa: F401 (fixtures)
 from yarl import URL
 
 from insteon.cli import run
@@ -83,3 +83,33 @@ async def test_the_private_folder_can_come_from_the_environment(
 
     assert await run(["inventory", "--no-modem-links"]) == 0
     assert "Example Dimmer" in capsys.readouterr().out
+
+
+# insteon programs ------------------------------------------------------------
+
+
+@pytest.fixture
+def programs_private(private: Path, eisy_ssh: SshEndpoint) -> Path:
+    """The private folder with the Controller's SSH login, and its host key pinned there."""
+    with (private / "eisy" / "iox.local.env").open("a") as env:
+        env.write(f"IOX_SSH_USER={SSH_USER}\nIOX_SSH_PASSWORD={SSH_PASSWORD}\nIOX_SSH_PORT={eisy_ssh.port}\n")
+    (private / "eisy" / "known_hosts").write_text(eisy_ssh.known_hosts.read_text())
+    return private
+
+
+async def test_programs_prints_every_program_and_variable(
+    programs_private: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(programs_private), "programs"]) == 0
+
+    out = capsys.readouterr().out
+    assert "IoX programs: 3 programs in 2 folders" in out
+    assert "IoX variables: 1 integer, 2 state" in out
+
+
+async def test_programs_without_the_ssh_login_fails_naming_the_missing_settings(
+    private: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(private), "programs"]) == 1
+
+    assert "does not set IOX_SSH_USER, IOX_SSH_PASSWORD" in capsys.readouterr().err

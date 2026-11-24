@@ -72,6 +72,17 @@ class HaRegistry:
         return [entity for entity in self.entities if entity.get("device_id") == device_id]
 
 
+@dataclass(frozen=True)
+class Automation:
+    """One Home Assistant automation and what it references, as HA's search finds it."""
+
+    entity_id: str
+    name: str
+    entities: frozenset[str]
+    devices: frozenset[str]
+    """HA device IDs, as in device triggers and targets."""
+
+
 class HaClient:
     """One authenticated WebSocket session. Use as an async context manager."""
 
@@ -145,6 +156,24 @@ class HaClient:
         entities = await self.call("config/entity_registry/list")
         entries = await self.call("config_entries/get", domain=DOMAIN)
         return HaRegistry(devices=devices, entities=entities, config_entries=entries)
+
+    async def automations(self) -> list[Automation]:
+        """Every automation, with the entities and devices HA's `search/related` finds in it."""
+        automations = []
+        for state in await self.call("get_states"):
+            entity_id = state.get("entity_id", "")
+            if not entity_id.startswith("automation."):
+                continue
+            related = await self.call("search/related", item_type="automation", item_id=entity_id)
+            automations.append(
+                Automation(
+                    entity_id=entity_id,
+                    name=state.get("attributes", {}).get("friendly_name") or entity_id,
+                    entities=frozenset(related.get("entity", [])) - {entity_id},
+                    devices=frozenset(related.get("device", [])),
+                )
+            )
+        return sorted(automations, key=lambda automation: automation.entity_id)
 
     async def remove_config_entry(self, device_id: str, config_entry_id: str) -> None:
         """Detach a device from a config entry; HA deletes a device left with none."""

@@ -1,0 +1,1 @@
+<d2d><trigger><id>10</id><name>Example Unknown</name><parent>1</parent><if><and /><schedule><daily /></schedule></if><then><notify content="1">2</notify></then><else></else><comment></comment></trigger></d2d>

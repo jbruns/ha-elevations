@@ -12,10 +12,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from insteon import inventory as inventory_command
+from insteon import programs as programs_command
 from insteon import prune as prune_command
 from insteon.config import ENV_PRIVATE_DIR, ConfigError, Private
 from insteon.ha import HaClient, HaError
-from insteon.iox import IoxClient, IoxError
+from insteon.iox import IoxClient, IoxError, IoxFiles
 from insteon.rails import LockHeld, Rails
 from insteon.resolve import ResolveError, needs_home_assistant
 
@@ -51,6 +52,11 @@ def _parser() -> argparse.ArgumentParser:
 
     prune = commands.add_parser("prune", help="remove Stale HA Devices")
     prune.add_argument("--apply", action="store_true", help="remove them; without it, only list them")
+
+    commands.add_parser(
+        "programs",
+        help="export IoX programs and variables as text, flagging HA automations on the same Devices",
+    )
     return parser
 
 
@@ -62,6 +68,8 @@ async def run(argv: Sequence[str] | None = None) -> int:
             await _inventory(args, private)
         elif args.command == "prune":
             await _prune(args, private)
+        elif args.command == "programs":
+            await _programs(args, private)
     except (ConfigError, IoxError, HaError, ResolveError, LockHeld) as error:
         print(f"insteon: error: {error}", file=sys.stderr)
         return 1
@@ -103,6 +111,14 @@ async def _prune(args: argparse.Namespace, private: Private) -> None:
     async with _iox(private) as iox, _ha(private, args) as ha:
         result = await prune_command.prune(iox, ha, _rails(private, apply=args.apply))
     print(prune_command.render(result, applying=args.apply), end="")
+
+
+async def _programs(args: argparse.Namespace, private: Private) -> None:
+    ssh = private.iox_ssh()
+    files = IoxFiles(ssh.host, ssh.user, ssh.password, port=ssh.port, known_hosts=ssh.known_hosts)
+    async with _iox(private) as iox, _ha(private, args) as ha:
+        result = await programs_command.export(iox, files, ha)
+    print(programs_command.render(result), end="")
 
 
 def main() -> int:

@@ -6,7 +6,7 @@ from insteon_fakes import FIXTURES, UUID, ha_devices, ha_entities
 from insteon.ha import HaRegistry
 from insteon.iox import parse_nodes
 from insteon.network import Network
-from insteon.resolve import ResolveError, resolve_device
+from insteon.resolve import ResolveError, ha_entity_ids, resolve_device
 
 NETWORK = parse_nodes((FIXTURES / "nodes.xml").read_text(), UUID)
 REGISTRY = HaRegistry(devices=ha_devices(), entities=ha_entities(), config_entries=[{"entry_id": "isy-entry", "domain": "isy994"}])
@@ -65,3 +65,23 @@ def test_a_name_two_devices_share_is_ambiguous() -> None:
 
     with pytest.raises(ResolveError, match="ambiguous"):
         resolve_device("Example Dimmer", network, None)
+
+
+@pytest.mark.parametrize(
+    ("address", "entity_ids"),
+    [
+        ("AA.BB.CC", ("light.example_dimmer", "number.example_dimmer_on_level")),
+        ("11.22.33", ("event.example_keypad_a",)),
+        ("22.33.44", ()),
+    ],
+)
+def test_a_device_resolves_to_its_entities_in_home_assistant(address: str, entity_ids: tuple[str, ...]) -> None:
+    device = resolve_device(address, NETWORK, REGISTRY)
+
+    assert ha_entity_ids(device, NETWORK, REGISTRY) == entity_ids
+
+
+def test_a_scene_resolves_to_its_entity_in_home_assistant() -> None:
+    scene = next(scene for scene in NETWORK.scenes if scene.address == "12345")
+
+    assert ha_entity_ids(scene, NETWORK, REGISTRY) == ("switch.example_scene",)

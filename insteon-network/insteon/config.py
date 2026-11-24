@@ -5,7 +5,10 @@ By default that is the repo's `.private/` (ADR 0004). Override it with
 which has no `.private/` of its own.
 
     <private>/eisy/iox.local.env   IOX_HOST, IOX_PORT, IOX_PROTO, IOX_USER_NAME,
-                                   IOX_PASSWORD, and optionally IOX_CERT_SHA256
+                                   IOX_PASSWORD, and optionally IOX_CERT_SHA256;
+                                   for SSH, IOX_SSH_USER, IOX_SSH_PASSWORD and
+                                   optionally IOX_SSH_PORT
+    <private>/eisy/known_hosts     optional: the Controller's SSH host key
     <private>/ha-url               the Home Assistant URL
     <private>/ha-token             a long-lived access token
     <private>/insteon.lock         the lock
@@ -39,6 +42,19 @@ class IoxSettings:
 
 
 @dataclass(frozen=True)
+class SshSettings:
+    host: str
+    port: int
+    user: str
+    password: str  # gitleaks:allow (an annotation, not a value)
+    known_hosts: Path | None
+    """None to use the user's own known_hosts."""
+
+    def __repr__(self) -> str:  # never print the password
+        return f"SshSettings(host={self.host!r}, port={self.port}, user={self.user!r})"
+
+
+@dataclass(frozen=True)
 class HaSettings:
     url: str
     token: str
@@ -66,11 +82,7 @@ class Private:
         return self.root / "insteon-backups"
 
     def iox(self) -> IoxSettings:
-        path = self.root / "eisy" / "iox.local.env"
-        values = _env_file(path)
-        missing = [key for key in ("IOX_HOST", "IOX_USER_NAME", "IOX_PASSWORD") if not values.get(key)]
-        if missing:
-            raise ConfigError(f"{path} does not set {', '.join(missing)}")
+        values = self._iox_env("IOX_HOST", "IOX_USER_NAME", "IOX_PASSWORD")
         proto = values.get("IOX_PROTO") or "https"
         port = values.get("IOX_PORT") or "8443"
         return IoxSettings(
@@ -79,6 +91,26 @@ class Private:
             password=values["IOX_PASSWORD"],
             cert_sha256=values.get("IOX_CERT_SHA256") or None,
         )
+
+    def iox_ssh(self) -> SshSettings:
+        """The Controller's SSH login, for reading its config files."""
+        values = self._iox_env("IOX_HOST", "IOX_SSH_USER", "IOX_SSH_PASSWORD")
+        known_hosts = self.root / "eisy" / "known_hosts"
+        return SshSettings(
+            host=values["IOX_HOST"],
+            port=int(values.get("IOX_SSH_PORT") or 22),
+            user=values["IOX_SSH_USER"],
+            password=values["IOX_SSH_PASSWORD"],
+            known_hosts=known_hosts if known_hosts.exists() else None,
+        )
+
+    def _iox_env(self, *required: str) -> dict[str, str]:
+        path = self.root / "eisy" / "iox.local.env"
+        values = _env_file(path)
+        missing = [key for key in required if not values.get(key)]
+        if missing:
+            raise ConfigError(f"{path} does not set {', '.join(missing)}")
+        return values
 
     def ha(self) -> HaSettings:
         return HaSettings(url=_one_line(self.root / "ha-url"), token=_one_line(self.root / "ha-token"))

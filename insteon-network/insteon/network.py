@@ -75,6 +75,9 @@ class Network:
         """The Device a Button address belongs to."""
         return self.device(button.device)
 
+    def scene(self, address: str) -> Scene | None:
+        return next((scene for scene in self.scenes if scene.address == address), None)
+
     def button(self, address: ButtonAddress) -> Button | None:
         device = self.device(address.device)
         if device is None:
