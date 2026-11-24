@@ -143,17 +143,7 @@ async def refs(iox: IoxClient, ha: HaClient, name: str, *, repo: Path) -> RefsRe
 def device_entities(device: Device, network: Network, registry: HaRegistry) -> list[DeviceEntity]:
     """The isy994 entities of the Device's Buttons, and other entities on its HA device."""
     isy994 = [DeviceEntity(entity_id, DOMAIN) for entity_id in ha_entity_ids(device, network, registry)]
-
-    def names_a_button(identifier: str) -> bool:
-        suffix = controller_suffix(identifier, network.uuid)
-        button = ButtonAddress.try_parse(suffix) if suffix else None
-        return button is not None and button.device == device.address
-
-    ha_devices = {
-        ha_device["id"]
-        for ha_device in registry.isy994_devices()
-        if any(names_a_button(identifier) for identifier in registry.isy994_identifiers(ha_device))
-    }
+    ha_devices = set(ha_device_ids(device, network, registry))
     helpers = sorted(
         (
             DeviceEntity(entity["entity_id"], entity.get("platform", ""))
@@ -163,6 +153,23 @@ def device_entities(device: Device, network: Network, registry: HaRegistry) -> l
         key=lambda entity: entity.entity_id,
     )
     return isy994 + helpers
+
+
+def ha_device_ids(device: Device, network: Network, registry: HaRegistry) -> tuple[str, ...]:
+    """The isy994 HA devices whose identifier names one of the Device's Buttons."""
+
+    def names_a_button(identifier: str) -> bool:
+        suffix = controller_suffix(identifier, network.uuid)
+        button = ButtonAddress.try_parse(suffix) if suffix else None
+        return button is not None and button.device == device.address
+
+    return tuple(
+        sorted(
+            ha_device["id"]
+            for ha_device in registry.isy994_devices()
+            if any(names_a_button(identifier) for identifier in registry.isy994_identifiers(ha_device))
+        )
+    )
 
 
 def _entity_pattern(entity_ids: Iterable[str]) -> re.Pattern[str]:

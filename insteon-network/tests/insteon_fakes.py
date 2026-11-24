@@ -25,8 +25,17 @@ UUID = "00:00:00:00:00:00"
 MODEM = "2A.2B.2C"
 USER, PASSWORD = "tool", "example-password"
 SSH_USER, SSH_PASSWORD = "example-admin", "example-ssh-password"
-# The one command the tool may run on the Controller: a read of the D2D folder.
+# The only commands the tool may run on the Controller: a read of the D2D
+# folder, and the IoX backup, a read of all of CONF.
 D2D_TAR = "sudo -S -p '' tar -cf - -C /var/isy/FILES/CONF D2D"
+CONF_TAR = "sudo -S -p '' tar -cf - -C /var/isy/FILES CONF"
+# The SOAP body elements that change IoX.
+WRITES = frozenset(
+    {
+        "AddNode", "RemoveNode", "MoveNode", "RemoveFromGroup", "AddGroup", "RemoveGroup",
+        "SetSceneProfile", "WriteDeviceUpdates", "RestoreDeviceFromNode", "ReplaceModem",
+    }
+)
 TOKEN = "example-token"
 
 
@@ -87,7 +96,16 @@ class FakeIox:
     """Devices whose G_DEV_ALL read never ends, so the client's own timeout fires."""
     soap_calls: list[dict[str, Any]] = field(default_factory=list)
     gets: list[str] = field(default_factory=list)
+    addable: dict[str, str] = field(default_factory=dict)
+    """`<node>` XML that AddNode adds, by the `id` it is sent. An id missing here is not added."""
+    refuse: set[str] = field(default_factory=set)
+    """Write elements IoX answers with HTTP 500."""
+    pending: set[str] = field(default_factory=set)
+    """Nodes IoX reports Pending Writes for (`_3` WH) after a write to them, rather than writing (`_3` WD)."""
+    written_later: set[str] = field(default_factory=set)
+    """Nodes IoX holds Pending Writes for at first (`_3` WH), then writes (`_3` WD) just after the call returns."""
     _sockets: list[web.WebSocketResponse] = field(default_factory=list)
+    _later: list[asyncio.Future[None]] = field(default_factory=list)
     _stop: asyncio.Event = field(default_factory=asyncio.Event)
 
     def _authorised(self, request: web.Request) -> bool:
@@ -137,6 +155,8 @@ class FakeIox:
             "params": {child.tag: child.text or "" for child in body},
         }
         self.soap_calls.append(call)
+        if element in WRITES:
+            return await self._write(element, call["params"])
         if element == "DeviceSpecific" and call["params"].get("command") == "G_PLM_INFO":
             return web.Response(text=self.plm_info)
         if element == "DeviceSpecific" and call["params"].get("command") == "G_PLM_ALL":
@@ -168,6 +188,68 @@ class FakeIox:
             text='<?xml version="1.0" encoding="UTF-8"?><s:Envelope><s:Body><UDIDefaultResponse><status>200</status></UDIDefaultResponse></s:Body></s:Envelope>',
             content_type="text/xml",
         )
+
+    async def _write(self, element: str, params: dict[str, str]) -> web.StreamResponse:
+        """Change the fake network as IoX would, bracketed by busy events."""
+        if element in self.refuse:
+            return web.Response(status=500)
+        node = params.get("node") or params.get("id") or ""
+        held = node in self.pending or node in self.written_later
+        written = [_event("_3", "WH" if held else "WD", node)] if node else []
+        await self._broadcast([_event("_5", "1"), *written])
+        self._change(element, params)
+        await self._broadcast([_event("_5", "0")])
+        if node in self.written_later:
+
+            async def write_later() -> None:
+                await asyncio.sleep(0.05)
+                await self._broadcast([_event("_5", "1"), _event("_3", "WD", node), _event("_5", "0")])
+
+            self._later.append(asyncio.ensure_future(write_later()))
+        return web.Response(
+            text='<?xml version="1.0" encoding="UTF-8"?><s:Envelope><s:Body><UDIDefaultResponse><status>200</status></UDIDefaultResponse></s:Body></s:Envelope>',
+            content_type="text/xml",
+        )
+
+    def _change(self, element: str, params: dict[str, str]) -> None:
+        root = ET.fromstring(self.nodes_xml)
+
+        def group(address: str) -> ET.Element | None:
+            return next((g for g in root.iter("group") if g.findtext("address") == address), None)
+
+        if element == "RemoveFromGroup" and (scene := group(params["group"])) is not None:
+            for members in scene.iter("members"):
+                for link in [link for link in members if link.text == params["node"]]:
+                    members.remove(link)
+        elif element == "MoveNode" and (scene := group(params["group"])) is not None:
+            members = scene.find("members")
+            if members is None:
+                members = ET.SubElement(scene, "members")
+            link = ET.SubElement(members, "link", type="16" if params["flag"] == "16" else "32")
+            link.text = params["node"]
+        elif element == "AddGroup":
+            scene = ET.SubElement(root, "group", flag="132", nodeDefId="InsteonDimmer")
+            ET.SubElement(scene, "address").text = params["id"]
+            ET.SubElement(scene, "name").text = params["name"]
+            ET.SubElement(scene, "deviceGroup").text = "40"
+        elif element == "RemoveGroup" and (scene := group(params["id"])) is not None:
+            root.remove(scene)
+        elif element == "RemoveNode":
+            device = params["id"].rsplit(" ", 1)[0] + " "
+            for node in [n for n in root.findall("node") if (n.findtext("pnode") or "").startswith(device)]:
+                root.remove(node)
+            for members in root.iter("members"):
+                for link in [link for link in members if (link.text or "").startswith(device)]:
+                    members.remove(link)
+        elif element == "AddNode" and params["id"] in self.addable:
+            root.append(ET.fromstring(self.addable[params["id"]]))
+        elif element == "RestoreDeviceFromNode" and params["node"] in self.actual:
+            self.actual[params["node"]] = list(self.expected.get(params["node"], []))
+        self.nodes_xml = ET.tostring(root, encoding="unicode")
+
+    def writes(self) -> list[tuple[str, dict[str, str]]]:
+        """Every write the tool sent, in order: its body element and parameters."""
+        return [(c["element"], c["params"]) for c in self.soap_calls if c["element"] in WRITES]
 
     async def _broadcast(self, events: list[str]) -> None:
         for ws in self._sockets:
@@ -205,12 +287,13 @@ def _tar(files: dict[str, bytes]) -> bytes:
 
 @dataclass
 class FakeEisySsh:
-    """The Controller's SSH login. It answers only the D2D read, and only when
-    sudo's password arrives on stdin."""
+    """The Controller's SSH login. It answers only the D2D read and the CONF
+    archive, and only when sudo's password arrives on stdin."""
 
     files: dict[str, bytes] = field(
         default_factory=lambda: {f"D2D/{path.name}": path.read_bytes() for path in sorted((FIXTURES / "programs").iterdir())}
     )
+    """The files under CONF, by path relative to it."""
     commands: list[str] = field(default_factory=list)
     sudo_passwords: list[str] = field(default_factory=list)
 
@@ -227,7 +310,7 @@ class FakeEisySsh:
     async def process(self, process: asyncssh.SSHServerProcess[bytes]) -> None:
         command = process.command or ""
         self.commands.append(command)
-        if command != D2D_TAR:
+        if command not in (D2D_TAR, CONF_TAR):
             process.stderr.write(b"sh: not allowed in the fake\n")
             process.exit(127)
             return
@@ -237,7 +320,10 @@ class FakeEisySsh:
             process.stderr.write(b"Sorry, try again.\nsudo: 1 incorrect password attempt\n")
             process.exit(1)
             return
-        process.stdout.write(_tar(self.files))
+        if command == CONF_TAR:
+            process.stdout.write(_tar({f"CONF/{name}": data for name, data in self.files.items()}))
+        else:
+            process.stdout.write(_tar(self.files))
         process.exit(0)
 
 
@@ -319,15 +405,24 @@ class FakeHa:
     )
     commands: list[dict[str, Any]] = field(default_factory=list)
     related: dict[str, dict[str, list[str]]] = field(default_factory=dict)
-    """`search/related` answers for an entity, by entity ID."""
+    """`search/related` answers for an entity or a device, by entity ID or HA device ID."""
     dashboards: list[dict[str, Any]] = field(default_factory=list)
     """`lovelace/dashboards/list`: the dashboards other than the default one."""
     dashboard_configs: dict[str | None, Any] = field(default_factory=dict)
     """`lovelace/config` by url_path (None for the default dashboard). Missing: config_not_found."""
+    configs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """Editable automation, script and scene configs, by entity ID, as HA's config API serves them."""
+    reload_drops: set[str] = field(default_factory=set)
+    """Entity IDs a reload of the isy994 entry removes: those the Controller no longer has."""
+
+    def writes(self) -> list[dict[str, Any]]:
+        """Every command that changes Home Assistant, in order."""
+        changing = {"config/device_registry/remove_config_entry", "call_service", "lovelace/config/save", "rest POST"}
+        return [c for c in self.commands if c["type"] in changing]
 
     def _result(self, message: dict[str, Any]) -> dict[str, Any]:
         kind = message["type"]
-        if kind == "search/related" and message.get("item_type") == "entity":
+        if kind == "search/related" and message.get("item_type") in ("entity", "device"):
             return {"success": True, "result": self.related.get(message["item_id"], {})}
         if kind == "lovelace/dashboards/list":
             return {"success": True, "result": self.dashboards}
@@ -340,8 +435,25 @@ class FakeHa:
             return {"success": True, "result": self.devices}
         if kind == "config/entity_registry/list":
             return {"success": True, "result": self.entities}
+        if kind in ("automation/config", "script/config"):
+            config = self.configs.get(message["entity_id"])
+            if config is None:
+                return {"success": False, "error": {"code": "not_found", "message": "Entity not found"}}
+            return {"success": True, "result": {"config": config}}
+        if kind == "lovelace/config/save":
+            self.dashboard_configs[message.get("url_path")] = message["config"]
+            return {"success": True, "result": None}
+        if kind == "call_service":
+            if (message["domain"], message["service"]) == ("homeassistant", "reload_config_entry"):
+                self.entities = [e for e in self.entities if e["entity_id"] not in self.reload_drops]
+            return {"success": True, "result": {"context": {}}}
         if kind == "get_states":
             states = [{"entity_id": "light.example_dimmer", "state": "on", "attributes": {}}]
+            states += [
+                {"entity_id": entity_id, "state": "scening", "attributes": {"id": config["id"]}}
+                for entity_id, config in self.configs.items()
+                if entity_id.startswith("scene.") and "id" in config
+            ]
             states += [
                 {"entity_id": entity_id, "state": "on", "attributes": {"friendly_name": automation["name"]}}
                 for entity_id, automation in self.automations.items()
@@ -382,9 +494,34 @@ class FakeHa:
             await ws.send_json({"id": command["id"], "type": "result", **self._result(command)})
         return ws
 
+    async def _config(self, request: web.Request) -> web.StreamResponse:
+        if request.headers.get("Authorization") != f"Bearer {TOKEN}":
+            return web.Response(status=401)
+        kind, key = request.match_info["kind"], request.match_info["key"]
+        entity_id = next(
+            (
+                entity_id
+                for entity_id, config in self.configs.items()
+                if entity_id.startswith(f"{kind}.")
+                and (entity_id.split(".", 1)[1] == key if kind == "script" else config.get("id") == key)
+            ),
+            None,
+        )
+        if request.method == "GET":
+            if entity_id is None:
+                return web.json_response({"message": "Resource not found"}, status=404)
+            return web.json_response(self.configs[entity_id])
+        body = await request.json()
+        self.commands.append({"type": "rest POST", "path": f"config/{kind}/config/{key}", "body": body})
+        if entity_id is None:
+            return web.json_response({"message": "Resource not found"}, status=404)
+        self.configs[entity_id] = body
+        return web.json_response({"result": "ok"})
+
     def app(self) -> web.Application:
         app = web.Application()
         app.router.add_get("/api/websocket", self._websocket)
+        app.router.add_route("*", "/api/config/{kind}/config/{key}", self._config)
         return app
 
     def removed(self) -> list[str]:

@@ -12,7 +12,8 @@ which has no `.private/` of its own.
     <private>/ha-url               the Home Assistant URL
     <private>/ha-token             a long-lived access token
     <private>/insteon.lock         the lock
-    <private>/insteon-backups/     backups taken before a change
+    <private>/insteon-backups/     HA backups taken before a change
+    <private>/eisy/backups/        IoX backups (tar of /var/isy/FILES/CONF)
 """
 
 from __future__ import annotations
@@ -80,6 +81,10 @@ class Private:
     @property
     def backup_root(self) -> Path:
         return self.root / "insteon-backups"
+
+    @property
+    def iox_backup_root(self) -> Path:
+        return self.root / "eisy" / "backups"
 
     def iox(self) -> IoxSettings:
         values = self._iox_env("IOX_HOST", "IOX_USER_NAME", "IOX_PASSWORD")

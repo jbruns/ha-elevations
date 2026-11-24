@@ -2,8 +2,14 @@
 
 REST reads (`/rest/...`), SOAP calls (`POST /services`), and the event stream
 (`/rest/subscribe`) all go through `IoxClient`, over HTTPS on port 8443 with a
-local IoX user. `IoxFiles` reads IoX's config files over SSH, read-only. The
-wire facts it relies on are in `insteon-network/research/iox-api.md`.
+local IoX user. `IoxFiles` reads IoX's config files over SSH, read-only, and
+archives them as the IoX backup. The wire facts it relies on are in
+`insteon-network/research/iox-api.md`.
+
+The writes (`IoxClient.remove_device` and the rest) send the body elements and
+parameters of the Controller's own schema (iox-api.md §3). Each one waits until
+IoX is no longer busy, so only one Modem operation runs at a time. Only a
+command on the rails (`insteon.rails`) may call them.
 
 IoX's XML comes from the Administrator's own Controller on the local network,
 so it is parsed with the standard library.
@@ -64,8 +70,21 @@ _MODEM_RECORD, _DEVICE_RECORD, _EXPECTED_RECORD = "1", "2", "3"
 DEVICE_READ_TIMEOUT = 120.0
 # Seconds to wait for events still in flight after a streaming call returns.
 _STREAM_GRACE = 5.0
+# Seconds to wait for one write to settle. A Restore rewrites a whole table;
+# the Modem's holds hundreds of Links, at about two a second.
+WRITE_TIMEOUT = 300.0
+MODEM_RESTORE_TIMEOUT = 1800.0
+# A Battery Device leaves linking mode after about four minutes (iox-api.md §6).
+BATTERY_WINDOW = 240.0
+# MoveNode's LinkModeFlag: the Button joins the Scene as a Controller or a Responder.
+_JOIN_AS_CONTROLLER, _JOIN_AS_RESPONDER = 16, 32
+# AddGroup's NodeTypeFlag for a Scene.
+_SCENE_TYPE = 4
+# RestoreDeviceFromNode's flag: 0 restores everything, Scenes included.
+_RESTORE_ALL = 0
 # IoX's config files, which only root may read (iox-api.md §5).
-CONF = "/var/isy/FILES/CONF"
+FILES = "/var/isy/FILES"
+CONF = f"{FILES}/CONF"
 _HEX_ID = re.compile(r"[0-9A-Fa-f]{1,8}")
 # The nodes a D2D file names, found even when the file won't parse.
 _NODE_ATTRIBUTE = re.compile(r'\bnode="([^"]+)"')
@@ -106,6 +125,32 @@ class Event:
     control: str
     action: str
     info: ET.Element
+    node: str = ""
+    """The node the event is about, as IoX writes it (`AA B C 1`), or empty."""
+
+
+@dataclass(frozen=True)
+class Write:
+    """One write IoX has finished, and the events it sent meanwhile."""
+
+    operation: str
+    events: tuple[Event, ...]
+
+    def pending(self, device: InsteonAddress) -> bool:
+        """IoX still holds Pending Writes for the Device: its last `_3` WH or WD event was WH."""
+        last = None
+        for event in self._node_events():
+            if event.action in ("WH", "WD") and _is_button_of(event.node, device):
+                last = event.action
+        return last == "WH"
+
+    def _node_events(self) -> Iterable[Event]:
+        return (event for event in self.events if event.control == "_3")
+
+
+def _is_button_of(node: str, device: InsteonAddress) -> bool:
+    button = ButtonAddress.try_parse(node)
+    return button is not None and button.device == device
 
 
 def soap_envelope(element: str, params: Mapping[str, object | None]) -> str:
@@ -377,6 +422,146 @@ class IoxClient:
                             await task
         return records
 
+    # Writes ---------------------------------------------------------------
+
+    async def remove_from_scene(self, button: ButtonAddress, scene: str) -> Write:
+        """Take a Button out of a Scene (`RemoveFromGroup`)."""
+        return await self._write("RemoveFromGroup", {"node": button.iox, "group": scene})
+
+    async def add_to_scene(self, button: ButtonAddress, scene: str, *, controller: bool) -> Write:
+        """Put a Button in a Scene as a Controller or a Responder Button (`MoveNode`)."""
+        flag = _JOIN_AS_CONTROLLER if controller else _JOIN_AS_RESPONDER
+        return await self._write("MoveNode", {"node": button.iox, "group": scene, "flag": flag})
+
+    async def create_scene(self, address: str, name: str) -> Write:
+        """Create an empty Scene at a Scene address IoX does not use yet (`AddGroup`)."""
+        return await self._write("AddGroup", {"id": address, "name": name, "flag": _SCENE_TYPE})
+
+    async def delete_scene(self, address: str) -> Write:
+        """Delete a Scene (`RemoveGroup`)."""
+        return await self._write("RemoveGroup", {"id": address})
+
+    async def set_scene_profile(self, responder: ButtonAddress, controller: str, control: str, value: int) -> Write:
+        """Set what a Responder Button does for one controller of its Scene (`SetSceneProfile`).
+
+        `controller` is the Scene address, for the Controller's own command, or
+        a Controller Button's address. `control` is `OL` (on level, 0-255) or
+        `RR` (ramp rate, an index into Insteon's table).
+        """
+        return await self._write(
+            "SetSceneProfile", {"node": responder.iox, "controller": controller, "control": control, "action": value}
+        )
+
+    async def write_updates(self, device: ButtonAddress, *, until_clear: bool = False) -> Write:
+        """Write a Device's Pending Writes to it now (`WriteDeviceUpdates`).
+
+        With `until_clear`, as for a Battery Device, wait until they clear (see `_write`).
+        """
+        return await self._write(
+            "WriteDeviceUpdates", {"node": device.iox}, until_clear=device.device if until_clear else None
+        )
+
+    async def remove_device(self, device: ButtonAddress) -> Write:
+        """Remove a Device and all its Buttons from the Controller (`RemoveNode` on its primary Button)."""
+        return await self._write("RemoveNode", {"id": device.iox})
+
+    async def restore_device(self, device: ButtonAddress, *, until_clear: bool = False) -> Write:
+        """Restore a Device's Links from the Controller's database (`RestoreDevice`).
+
+        With `until_clear`, as for a Battery Device, wait until its Pending Writes clear (see `_write`).
+        """
+        return await self._write(
+            "RestoreDevice",
+            {"node": device.iox, "flag": _RESTORE_ALL},
+            element="RestoreDeviceFromNode",
+            until_clear=device.device if until_clear else None,
+        )
+
+    async def restore_modem(self, *, timeout: float = MODEM_RESTORE_TIMEOUT) -> Write:
+        """Restore the Modem's Links from the Controller's database (`ReplaceModem`)."""
+        return await self._write("ReplaceModem", {}, timeout=timeout)
+
+    async def add_device(self, address: InsteonAddress, name: str, *, flag: int, until_clear: bool = False) -> Write:
+        """Add a Device by its Insteon Address (`AddNode`).
+
+        `flag` is IoX's NodeOperationsFlag: 1 erases the Device's Links, 3 adds
+        the Devices it is linked to and builds Scenes from its Links. IoX reads
+        the Device's type itself, so none is given.
+        """
+        return await self._write(
+            "AddNode",
+            {"id": address.iox, "name": name, "type": "", "flag": flag},
+            until_clear=address if until_clear else None,
+        )
+
+    async def _write(
+        self,
+        operation: str,
+        params: Mapping[str, object | None],
+        *,
+        element: str | None = None,
+        timeout: float = WRITE_TIMEOUT,
+        until_clear: InsteonAddress | None = None,
+    ) -> Write:
+        """Send one write and wait until IoX has finished it.
+
+        IoX reports its work on the event stream: busy (`_5` 1), then not busy
+        (`_5` 0). The write is done when the call has returned and IoX is no
+        longer busy, or a short grace passes with no busy event at all. The
+        events seen meanwhile are returned, so a caller can tell which Devices
+        IoX wrote to (`_3` WD) or still holds Pending Writes for (`_3` WH).
+
+        With `until_clear`, a Device in linking mode, the wait goes on while
+        IoX still holds Pending Writes for it, until it writes them or
+        `BATTERY_WINDOW` passes, when the Device leaves linking mode anyway.
+        """
+        events: list[Event] = []
+        busy = settled = False
+        getter: asyncio.Future[Event] | None = None
+        async with self.events() as queue:
+            call = asyncio.create_task(self.soap(operation, params, element=element, timeout=timeout))
+            try:
+                async with asyncio.timeout(timeout):
+                    while not (settled and call.done()):
+                        waiting = set() if call.done() else {call}
+                        getter = asyncio.ensure_future(queue.get())
+                        done, _ = await asyncio.wait(
+                            {getter, *waiting},
+                            timeout=None if waiting or busy else _STREAM_GRACE,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if getter not in done:
+                            getter.cancel()
+                            if call.done():
+                                call.result()  # raises if the call failed
+                            if not waiting and not busy:
+                                break
+                            continue
+                        event = getter.result()
+                        events.append(event)
+                        if event.control == "_5" and event.action == "1":
+                            busy, settled = True, False
+                        elif event.control == "_5" and event.action == "0":
+                            busy, settled = False, True
+                    call.result()
+                if until_clear is not None:
+                    with contextlib.suppress(TimeoutError):
+                        async with asyncio.timeout(BATTERY_WINDOW):
+                            while busy or Write(operation, tuple(events)).pending(until_clear):
+                                event = await queue.get()
+                                events.append(event)
+                                if event.control == "_5":
+                                    busy = event.action == "1"
+            except TimeoutError as error:
+                raise IoxError(f"SOAP {operation}: IoX was still busy after {timeout:.0f} s") from error
+            finally:
+                for task in (getter, call):
+                    if task is not None and not task.done():
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await task
+        return Write(operation, tuple(events))
+
     async def programs(self) -> list[Program]:
         """Every program and program folder, without bodies (`/rest/programs`)."""
         return parse_programs(await self.get("programs?subfolders=true"))
@@ -417,6 +602,8 @@ def parse_variables(kind: VariableKind, definitions: str, values: str) -> list[V
 class IoxFiles:
     """IoX's config files under `/var/isy/FILES/CONF`, read over SSH. Read-only.
 
+    It reads program bodies, and archives the whole of CONF as the IoX backup.
+
     The files are root's, so the read runs under `sudo`, which takes the SSH
     user's password on stdin (`-S`). The password never goes on a command line.
     The host key is checked against `known_hosts`, by default the user's own.
@@ -456,9 +643,24 @@ class IoxFiles:
             bodies[number] = body
         return bodies
 
+    async def conf_archive(self) -> bytes:
+        """All of `/var/isy/FILES/CONF` as one tar archive: the IoX backup.
+
+        Raises IoxError unless the archive is a tar holding at least one file.
+        """
+        where = f"SSH to {self._user}@{self._host}"
+        data = await self._tar(FILES, "CONF")
+        if not _files_in(data, CONF, where=where):
+            raise IoxError(f"{where}: the archive of {CONF} holds no files")
+        return data
+
     async def _read_folder(self, folder: str) -> dict[str, bytes]:
         """The files in one folder under CONF, by path relative to CONF."""
-        command = f"sudo -S -p '' tar -cf - -C {CONF} {folder}"
+        return _files_in(await self._tar(CONF, folder), f"{CONF}/{folder}", where=f"SSH to {self._user}@{self._host}")
+
+    async def _tar(self, parent: str, folder: str) -> bytes:
+        """`folder` under `parent` as a tar archive, read as root (`sudo -S`)."""
+        command = f"sudo -S -p '' tar -cf - -C {parent} {folder}"
         where = f"SSH to {self._user}@{self._host}"
         try:
             async with asyncio.timeout(self._timeout):
@@ -486,16 +688,21 @@ class IoxFiles:
         if result.exit_status != 0:
             stderr = _bytes(result.stderr).decode(errors="replace").strip().splitlines()
             reason = stderr[-1] if stderr else "no message"
-            raise IoxError(f"{where}: reading {CONF}/{folder} exited {result.exit_status}: {reason}")
-        try:
-            with tarfile.open(fileobj=io.BytesIO(_bytes(result.stdout))) as archive:
-                return {
-                    member.name: extracted.read()
-                    for member in archive.getmembers()
-                    if member.isfile() and (extracted := archive.extractfile(member)) is not None
-                }
-        except tarfile.TarError as error:
-            raise IoxError(f"{where}: reading {CONF}/{folder} returned no tar archive ({error})") from error
+            raise IoxError(f"{where}: reading {parent}/{folder} exited {result.exit_status}: {reason}")
+        return _bytes(result.stdout)
+
+
+def _files_in(data: bytes, source: str, *, where: str) -> dict[str, bytes]:
+    """The files in a tar archive, by path. Raises IoxError when it is not one."""
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+            return {
+                member.name: extracted.read()
+                for member in archive.getmembers()
+                if member.isfile() and (extracted := archive.extractfile(member)) is not None
+            }
+    except tarfile.TarError as error:
+        raise IoxError(f"{where}: reading {source} returned no tar archive ({error})") from error
 
 
 def _bytes(output: bytes | str | None) -> bytes:
@@ -726,6 +933,7 @@ def _parse_event(text: str) -> Event | None:
         control=root.findtext("control", ""),
         action=root.findtext("action", ""),
         info=info if info is not None else ET.Element("eventInfo"),
+        node=(root.findtext("node") or "").strip(),
     )
 
 

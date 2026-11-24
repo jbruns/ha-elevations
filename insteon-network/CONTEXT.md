@@ -44,6 +44,10 @@ _Avoid_: Master, source
 A Button that follows a Scene, at a level the Scene sets for it.
 _Avoid_: Slave, target
 
+**Scene Peer**:
+Another Device with a Button in the same Scene. When a Device is removed, its former Scene Peers hold the Links that pointed at it.
+_Avoid_: Neighbour, member device
+
 **Link**:
 One record in a Device's or the Modem's link table, saying who it controls or responds to.
 _Avoid_: ALDB entry, link record

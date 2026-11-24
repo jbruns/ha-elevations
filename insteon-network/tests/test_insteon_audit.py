@@ -260,7 +260,7 @@ async def test_the_audit_reads_nothing_while_another_command_holds_the_lock(
     with lock(tmp_path / "insteon.lock", "restore"), pytest.raises(LockHeld, match="insteon restore"):
         await run_audit(iox_url, tmp_path)
 
-    assert [call["params"]["command"] for call in network.soap_calls] == ["G_PLM_INFO"]
+    assert network.soap_calls == []
 
 
 async def test_a_missing_link_to_an_unresponsive_device_says_so(

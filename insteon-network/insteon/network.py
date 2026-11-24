@@ -38,6 +38,11 @@ class Device:
     buttons: tuple[Button, ...]
 
     @property
+    def label(self) -> str:
+        """The Device as reports name it: `1A.2B.3C Name`."""
+        return f"{self.address} {self.name}"
+
+    @property
     def primary(self) -> ButtonAddress:
         """The address IoX reads the Device's Links through: its first Button."""
         return self.buttons[0].address if self.buttons else ButtonAddress(self.address, 1)

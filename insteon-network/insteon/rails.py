@@ -5,13 +5,18 @@ A command that changes something only plans and prints unless it was given
 so one Modem operation) runs at a time, then backs up each system it is about
 to change, and only then changes anything.
 
-What a backup holds today:
+What a backup holds:
 
-- Home Assistant: the device registry, entity registry and isy994 config
-  entries as JSON. Enough to see what a removal took away and re-create it by
-  hand; it is not a Home Assistant backup and cannot be restored automatically.
-- IoX: not built yet. No command changes IoX so far; the first one that does
-  must add the full IoX backup over SSH (`/var/isy/FILES/CONF/`) as a Backup.
+- IoX (`IoxBackup`): all of `/var/isy/FILES/CONF` as one tar, read over SSH as
+  root, saved as `<private>/eisy/backups/<time>.tar`. If it cannot be taken,
+  the command stops before changing anything.
+- Home Assistant registries (`HaRegistryBackup`): the device registry, entity
+  registry and isy994 config entries as JSON. Enough to see what a removal took
+  away and re-create it by hand; it is not a Home Assistant backup and cannot be
+  restored automatically.
+- Home Assistant config: a command that edits automations, scripts, scenes or
+  dashboards (`remove --clean`) saves each one's config as read just before
+  editing it, in the backup folder, in the shape HA's config API takes back.
 """
 
 from __future__ import annotations
@@ -20,13 +25,15 @@ import contextlib
 import fcntl
 import json
 import os
-from collections.abc import AsyncIterator, Iterator, Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
 from insteon.ha import HaClient
+from insteon.iox import IoxClient, IoxError, IoxFiles, Write
+from insteon.network import Device
 
 
 class LockHeld(RuntimeError):
@@ -57,11 +64,34 @@ def lock(path: Path, command: str) -> Iterator[None]:
 
 
 class Backup(Protocol):
-    """Saves what one system holds before a command changes it."""
+    """Saves what one system holds before a command changes it.
+
+    `folder` is this run's backup folder and `stamp` its time, as in its name.
+    """
 
     name: str
 
-    async def take(self, folder: Path) -> None: ...
+    async def take(self, folder: Path, stamp: str) -> None: ...
+
+
+@dataclass
+class IoxBackup:
+    """All of IoX's config (`/var/isy/FILES/CONF`), as a tar in `root`."""
+
+    files: IoxFiles
+    root: Path
+    name: str = "IoX"
+    path: Path | None = None
+    """Where the archive went, once taken."""
+
+    async def take(self, folder: Path, stamp: str) -> None:
+        archive = await self.files.conf_archive()
+        self.root.mkdir(parents=True, exist_ok=True)
+        path = self.root / f"{stamp}.tar"
+        partial = path.with_suffix(".tar.partial")
+        partial.write_bytes(archive)
+        partial.rename(path)
+        self.path = path
 
 
 @dataclass
@@ -69,7 +99,7 @@ class HaRegistryBackup:
     ha: HaClient
     name: str = "Home Assistant registries"
 
-    async def take(self, folder: Path) -> None:
+    async def take(self, folder: Path, stamp: str) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         registry = await self.ha.registry()
         snapshot = {
@@ -100,5 +130,87 @@ class Rails:
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             folder = self.backup_root / f"{stamp}-{command}"
             for backup in backups:
-                await backup.take(folder)
+                await backup.take(folder, stamp)
             yield folder
+
+
+def hold_set(who: str, prompt: Callable[[str], str], *, other: str = "type s to skip it") -> str:
+    """Ask the Administrator to put a Battery Device (`who`) in linking mode. Returns the answer, lowercased.
+
+    An empty answer means the Device is in linking mode. Only one Battery
+    Device may be in linking mode at a time, or they link to each other.
+    """
+    answer = prompt(
+        f"{who} is a Battery Device. Hold its Set button until it enters "
+        f"linking mode, then press Enter ({other}): "
+    )
+    return answer.strip().lower()
+
+
+@dataclass(frozen=True)
+class DeviceWrite:
+    """How one write to a Device went."""
+
+    device: Device
+    written: bool
+    pending: bool = False
+    """IoX still holds Pending Writes for the Device afterwards."""
+    skipped: str | None = None
+
+    @property
+    def outcome(self) -> str | None:
+        """What the Administrator still has to do, or None when the write went through."""
+        if not self.written:
+            return f"not written ({self.skipped}); its Pending Writes remain"
+        if self.pending:
+            return "Pending Writes remain; hold its Set button and run `insteon restore` on it"
+        return None
+
+
+async def write_device(
+    device: Device, write: Callable[[bool], Awaitable[Write]], prompt: Callable[[str], str]
+) -> DeviceWrite:
+    """Run one write that IoX sends to `device`, prompting first for a Battery Device.
+
+    `write` is called with whether to wait until the Device's Pending Writes
+    clear: only for a Battery Device, while it is in linking mode. For any
+    other Device the write waits until IoX is no longer busy. Either way,
+    IoX's last word on the Device's Pending Writes (`_3` WH or WD) tells
+    whether they cleared.
+    """
+    if device.battery and hold_set(device.label, prompt).startswith("s"):
+        return DeviceWrite(device, written=False, pending=True, skipped="a Battery Device; skipped at the prompt")
+    result = await write(device.battery)
+    return DeviceWrite(device, written=True, pending=result.pending(device.address))
+
+
+@dataclass
+class WriteReport:
+    """Writing the updates to several Devices: how each went, and which failed."""
+
+    writes: list[DeviceWrite] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+
+    def lines(self, indent: str) -> list[str]:
+        """A line for each Device still needing something, and each failure."""
+        found = [f"{indent}{w.device.label}: {w.outcome}" for w in self.writes if w.outcome]
+        return found + [f"{indent}failed: {failure}" for failure in self.failures]
+
+
+async def write_updates_to(
+    iox: IoxClient,
+    devices: Sequence[Device],
+    prompt: Callable[[str], str],
+    progress: Callable[[str], None],
+) -> WriteReport:
+    """Write the updates to each Device in turn. A Device that fails is reported, and the rest still written."""
+    report = WriteReport()
+    for device in devices:
+        progress(f"Writing the updates to {device.label}")
+        try:
+            report.writes.append(
+                await write_device(device, lambda clear, d=device: iox.write_updates(d.primary, until_clear=clear), prompt)
+            )
+        except IoxError as error:
+            report.failures.append(f"{device.label}: {error}")
+    return report
