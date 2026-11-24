@@ -413,6 +413,9 @@ class FakeHa:
     configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Editable automation, script and scene configs, by entity ID, as HA's config API serves them."""
     reload_drops: set[str] = field(default_factory=set)
+    close_after: int | None = None
+    """Close each WebSocket after this many commands, as an idle-timeout proxy would."""
+    connections: int = 0
     """Entity IDs a reload of the isy994 entry removes: those the Controller no longer has."""
 
     def writes(self) -> list[dict[str, Any]]:
@@ -486,12 +489,18 @@ class FakeHa:
             await ws.close()
             return ws
         await ws.send_json({"type": "auth_ok"})
+        self.connections += 1
+        answered = 0
         async for message in ws:
             if message.type != WSMsgType.TEXT:
                 break
             command = message.json()
             self.commands.append(command)
             await ws.send_json({"id": command["id"], "type": "result", **self._result(command)})
+            answered += 1
+            if self.close_after is not None and answered >= self.close_after:
+                await ws.close()
+                break
         return ws
 
     async def _config(self, request: web.Request) -> web.StreamResponse:

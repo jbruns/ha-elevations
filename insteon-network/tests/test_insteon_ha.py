@@ -31,6 +31,18 @@ async def test_a_refused_command_raises_with_home_assistants_reason(ha_url: str)
             await ha.remove_config_entry("no-such-device", "isy-entry")
 
 
+async def test_a_connection_closed_while_idle_is_reopened_for_the_next_command(
+    ha_url: str, fake_ha: FakeHa
+) -> None:
+    fake_ha.close_after = 1  # e.g. a proxy dropping the socket during a long Modem Restore
+    async with HaClient(ha_url, TOKEN) as ha:
+        first = await ha.registry()
+        second = await ha.registry()
+
+    assert first.isy994_entries == second.isy994_entries == {"isy-entry"}
+    assert fake_ha.connections >= 2
+
+
 async def test_a_wrong_token_is_reported_plainly(ha_url: str) -> None:
     with pytest.raises(HaError, match="refused the access token"):
         async with HaClient(ha_url, "wrong"):
