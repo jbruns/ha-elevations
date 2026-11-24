@@ -193,7 +193,7 @@ async def scene(
         progress(change.summary)
         for call in change.calls:
             await call(iox)
-        await write_updates_to(iox, change.devices, prompt, progress, result.writes)
+        result.writes = await write_updates_to(iox, change.devices, prompt, progress)
         if change.reconcile:
             progress("Reconciling HA: reloading the isy994 integration, then pruning")
             result.reconciled = await reconcile(iox, ha)

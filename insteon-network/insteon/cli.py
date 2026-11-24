@@ -91,7 +91,7 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("--apply", action="store_true", help=apply_help)
 
     remove = commands.add_parser(
-        "remove", help="leave Scenes, write, remove, Restore former peers and the Modem, then Reconcile HA"
+        "remove", help="leave Scenes, write, remove, Restore former Scene Peers and the Modem, then Reconcile HA"
     )
     remove.add_argument("device", metavar="DEVICE", help="Insteon Address, IoX name or HA entity ID")
     remove.add_argument("--clean", action="store_true", help="also take its References out of live HA (a diff first)")

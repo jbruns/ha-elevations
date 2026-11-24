@@ -202,9 +202,9 @@ async def write_updates_to(
     devices: Sequence[Device],
     prompt: Callable[[str], str],
     progress: Callable[[str], None],
-    report: WriteReport,
-) -> None:
+) -> WriteReport:
     """Write the updates to each Device in turn. A Device that fails is reported, and the rest still written."""
+    report = WriteReport()
     for device in devices:
         progress(f"Writing the updates to {device.label}")
         try:
@@ -213,3 +213,4 @@ async def write_updates_to(
             )
         except IoxError as error:
             report.failures.append(f"{device.label}: {error}")
+    return report

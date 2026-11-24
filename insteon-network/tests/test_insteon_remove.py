@@ -275,3 +275,14 @@ async def test_a_failed_peer_restore_after_the_removal_is_reported_and_ha_is_sti
     assert ("ReplaceModem", {}) in network.writes()
     assert "dimmer" in fake_ha.removed()
     assert "failed: 11.22.33 Example Keypad: SOAP RestoreDevice: HTTP 500" in render(result)
+
+
+async def test_a_failed_write_before_the_removal_is_reported_and_the_removal_goes_on(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, network: FakeIox, tmp_path: Path, repo: Path
+) -> None:
+    network.refuse.add("WriteDeviceUpdates")
+
+    result = await run(iox_url, ha_url, eisy_ssh, tmp_path, repo, apply=True)
+
+    assert ("RemoveNode", {"id": "AA BB CC 1"}) in network.writes()
+    assert "failed: 11.22.33 Example Keypad: SOAP WriteDeviceUpdates: HTTP 500" in render(result)

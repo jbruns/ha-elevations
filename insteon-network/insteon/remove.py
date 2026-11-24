@@ -15,7 +15,7 @@ the HA registries, plans again, then, in this order:
 6. with `--clean`, shows the diffs, and once the Administrator confirms them,
    takes the Device's References out of live HA (`insteon.clean`).
 
-An Unresponsive Device can't be written to, so step 2 skips it, but its peers
+An Unresponsive Device can't be written to, so step 2 skips it, but its Scene Peers
 and the Modem are still cleaned. Whether a Device is Unresponsive is decided
 by reading its Links first, as the Link Audit does; for a Battery Device, the
 Administrator says whether it is there. References in the repo are listed,
@@ -96,9 +96,11 @@ async def remove(
 ) -> RemoveResult:
     """Remove the Device, as the module says.
 
-    Until the Device is removed (step 3), any failure stops the command. After
-    it, every step still runs: a failed Restore is reported, and HA is still
-    Reconciled, since the Controller no longer has the Device either way.
+    A failure to take it out of a Scene (step 1) stops the command. A write
+    that fails in step 2 is reported and the removal goes on, since step 4
+    audits and Restores the Scene Peers anyway. After the removal, every step
+    still runs: a failed Restore is reported, and HA is still Reconciled,
+    since the Controller no longer has the Device either way.
     """
     if not rails.apply:
         with rails.modem_operation("remove"):
@@ -117,7 +119,7 @@ async def remove(
             await iox.remove_from_scene(membership.button, membership.scene.address)
 
         writing = ([] if planned.unresponsive else [device]) + list(planned.peers)  # 2
-        await write_updates_to(iox, writing, prompt, progress, result.writes)
+        result.writes = await write_updates_to(iox, writing, prompt, progress)
 
         progress(f"Removing {device.label} from the Controller")  # 3
         await iox.remove_device(device.primary)
@@ -125,7 +127,9 @@ async def remove(
         if network.device(device.address) is not None:
             raise IoxError(f"IoX still has {device.address} after RemoveNode; nothing after step 3 was done")
 
-        await _clean_peers_and_modem(iox, network, planned, result, read_modem_links, timeout, prompt, progress)  # 4
+        await _clean_peers_and_modem(  # 4
+            iox, network, planned, result, read_modem_links=read_modem_links, timeout=timeout, prompt=prompt, progress=progress
+        )
 
         progress("Reconciling HA: reloading the isy994 integration, then pruning")  # 5
         result.reconciled = await reconcile(iox, ha)
@@ -148,6 +152,7 @@ async def _clean_peers_and_modem(
     network: Network,
     planned: RemovePlan,
     result: RemoveResult,
+    *,
     read_modem_links: bool,
     timeout: float,
     prompt: Callable[[str], str],
@@ -214,7 +219,7 @@ async def _plan(
     elif device.battery and hold_set(device.label, ask, other="type u if it is gone").startswith("u"):
         unresponsive = "the Administrator says it is gone"
     else:
-        progress(f"Reading the Links of {device.address} {device.name} to see whether it answers")
+        progress(f"Reading the Links of {device.label} to see whether it answers")
         try:
             await iox.device_links(device.primary, timeout=timeout)
         except DeviceUnresponsive as error:
@@ -252,7 +257,7 @@ def _peers(device: Device, network: Network, memberships: tuple[Membership, ...]
 def render(result: RemoveResult) -> str:
     plan, device = result.plan, result.plan.device
     title = "Removed" if result.applied else "Would remove"
-    sections = [f"{title} {device.address} {device.name}"]
+    sections = [f"{title} {device.label}"]
 
     if plan.unresponsive:
         sections.append(f"Unresponsive ({plan.unresponsive}): nothing is written to it; its Scene Peers and the Modem are still cleaned.")

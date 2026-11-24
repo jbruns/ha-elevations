@@ -110,9 +110,9 @@ Removes a Device and cleans up after it. In order:
 5. Reconciles HA: reloads the isy994 integration, then removes the Stale HA Devices, as `prune` does.
 6. With `--clean`, prints the diffs to live HA and asks before saving them.
 
-Until step 3, any failure stops the command. After it, each step still runs: the Device is gone either way, so a failed Restore is reported and HA is still Reconciled.
+A failure in step 1 stops the command. A write that fails in step 2 is reported and the removal goes on, since step 4 audits and Restores the Scene Peers anyway. After step 3, each step still runs: the Device is gone either way, so a failed Restore is reported and HA is still Reconciled.
 
-First, it reads the Device's Links, as `audit` does, even in a dry run. A Device that does not answer is an Unresponsive Device: step 2 writes nothing to it, but its peers and the Modem are still cleaned. For a Battery Device, the tool asks the Administrator to hold its Set button, or to type `u` if it is gone. Battery Scene Peers are skipped in step 4; audit them by name afterwards.
+First, it reads the Device's Links, as `audit` does, even in a dry run. A Device that does not answer is an Unresponsive Device: step 2 writes nothing to it, but its Scene Peers and the Modem are still cleaned. For a Battery Device, the tool asks the Administrator to hold its Set button, or to type `u` if it is gone. Battery Scene Peers are skipped in step 4; audit them by name afterwards.
 
 References are always listed: live HA's as the edits `--clean` would make or as hand edits, and the repo's, which are never edited. With `--clean`, a dry run prints each edit as a diff. `--clean --apply` reads each config again after the Reconcile, prints the diffs again, and saves them through HA's config API, never `.storage`, only once the Administrator types `yes`:
 
