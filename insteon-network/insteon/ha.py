@@ -193,8 +193,8 @@ class HaClient:
             await self._connect()
             try:
                 reply = await self._exchange(kind, payload)
-            except _Unsent as error:
-                raise HaError("Home Assistant closed the connection") from error
+            except _Unsent as closed:
+                raise HaError("Home Assistant closed the connection") from closed
         if not reply.get("success"):
             error = reply.get("error") or {}
             code = error.get("code", "error")
