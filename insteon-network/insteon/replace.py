@@ -195,6 +195,7 @@ async def replace(
         if not plan.resume:  # 1
             progress(f"Replacing {old.label} with {new.label} on the Controller")
             result.write = await write_device(
+                iox,
                 new,
                 lambda clear: iox.replace_device(old.primary, new.primary, new.type_code, until_clear=clear),
                 prompt,

@@ -20,7 +20,7 @@ from insteon.ha import HaClient
 from insteon.iox import IoxClient, IoxError
 from insteon.network import Device, Network
 from insteon.prune import PruneResult, reconcile
-from insteon.rails import HaRegistryBackup, IoxBackup, Rails, hold_set
+from insteon.rails import DeviceWrite, HaRegistryBackup, IoxBackup, Rails, confirm_write, hold_set
 from insteon.resolve import ResolveError, ha_entity_ids
 
 ERASE_LINKS, FROM_LINKS = 1, 3
@@ -35,7 +35,7 @@ class AddResult:
     applied: bool = False
     skipped: bool = False
     device: Device | None = None
-    pending: bool = False
+    write: DeviceWrite | None = None
     reconciled: PruneResult | None = None
     entity_ids: tuple[str, ...] = ()
     iox_backup: Path | None = None
@@ -81,7 +81,7 @@ async def add(
                 f"IoX did not add {address}. Check it is powered and in range; a new Device may need its Set "
                 "button held (pass --battery to be prompted)"
             )
-        result.pending = write.pending(address)
+        result.write = await confirm_write(iox, result.device, write)
         progress("Reconciling HA: reloading the isy994 integration, then pruning")
         result.reconciled = await reconcile(iox, ha)
         result.entity_ids = ha_entity_ids(result.device, network, await ha.registry())
@@ -109,8 +109,8 @@ def render(result: AddResult) -> str:
     device = result.device
     assert device is not None
     lines = [f"Added {device.label} ({device.model}, {len(device.buttons)} Buttons), {how}."]
-    if result.pending:
-        lines.append("  Pending Writes remain: hold its Set button and run `insteon restore` on it.")
+    if result.write is not None and result.write.outcome:
+        lines.append(f"  {result.write.outcome}.")
     elif device.battery and not result.battery:
         lines.append(
             "  It is a Battery Device, so IoX may hold Pending Writes for it: hold its Set button and run "

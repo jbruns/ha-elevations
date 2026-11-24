@@ -1,9 +1,10 @@
-"""The rails every changing command runs on: dry run, the lock, and backups.
+"""The rails every changing command runs on: dry run, the lock, backups, and confirming writes.
 
 A command that changes something only plans and prints unless it was given
 `--apply`. When it applies, it first takes the lock, so only one command (and
 so one Modem operation) runs at a time, then backs up each system it is about
-to change, and only then changes anything.
+to change, and only then changes anything. Each write to a Device is then
+confirmed (`confirm_write`), so Pending Writes left on it are reported.
 
 What a backup holds:
 
@@ -32,8 +33,9 @@ from pathlib import Path
 from typing import Protocol
 
 from insteon.ha import HaClient
-from insteon.iox import IoxClient, IoxError, IoxFiles, Write
+from insteon.iox import DeviceUnresponsive, IoxClient, IoxError, IoxFiles, Write
 from insteon.network import Device
+from insteon.table_audit import audit_table
 
 
 class LockHeld(RuntimeError):
@@ -156,32 +158,60 @@ class DeviceWrite:
     pending: bool = False
     """IoX still holds Pending Writes for the Device afterwards."""
     skipped: str | None = None
+    unresponsive: str | None = None
+    """Why a read of the Device's Links, to confirm the write, found it an Unresponsive Device."""
 
     @property
     def outcome(self) -> str | None:
         """What the Administrator still has to do, or None when the write went through."""
         if not self.written:
             return f"not written ({self.skipped}); its Pending Writes remain"
-        if self.pending:
+        if not self.pending:
+            return None
+        if self.device.battery:
             return "Pending Writes remain; hold its Set button and run `insteon restore` on it"
-        return None
+        if self.unresponsive:
+            return f"an Unresponsive Device: {self.unresponsive}; its Pending Writes may remain"
+        return (
+            "Pending Writes remain: its Links still differ from the Controller's; "
+            "run `insteon restore` on it, or check that it answers"
+        )
 
 
 async def write_device(
-    device: Device, write: Callable[[bool], Awaitable[Write]], prompt: Callable[[str], str]
+    iox: IoxClient, device: Device, write: Callable[[bool], Awaitable[Write]], prompt: Callable[[str], str]
 ) -> DeviceWrite:
     """Run one write that IoX sends to `device`, prompting first for a Battery Device.
 
     `write` is called with whether to wait until the Device's Pending Writes
     clear: only for a Battery Device, while it is in linking mode. For any
-    other Device the write waits until IoX is no longer busy. Either way,
-    IoX's last word on the Device's Pending Writes (`_3` WH or WD) tells
-    whether they cleared.
+    other Device the write waits until IoX is no longer busy. Then
+    `confirm_write` tells whether Pending Writes remain.
     """
     if device.battery and hold_set(device.label, prompt).startswith("s"):
         return DeviceWrite(device, written=False, pending=True, skipped="a Battery Device; skipped at the prompt")
-    result = await write(device.battery)
-    return DeviceWrite(device, written=True, pending=result.pending(device.address))
+    return await confirm_write(iox, device, await write(device.battery))
+
+
+async def confirm_write(iox: IoxClient, device: Device, write: Write) -> DeviceWrite:
+    """Whether IoX still holds Pending Writes for `device` after `write`.
+
+    IoX's last word on the Device (`_3` WH or WD) is the answer for a Battery
+    Device. A powered Device can get a WH after its write went through
+    (research/iox-api.md §9), so when its last word is WH, its Links are read
+    and compared with the Controller's, as the Link Audit does: Pending Writes
+    remain only if they differ.
+    """
+    pending = write.pending(device.address)
+    if device.battery or not pending:
+        return DeviceWrite(device, written=True, pending=pending)
+    try:
+        held = await iox.device_links(device.primary)
+    except DeviceUnresponsive as error:
+        return DeviceWrite(device, written=True, pending=True, unresponsive=str(error))
+    network, modem = await iox.network(), await iox.modem()
+    table = audit_table(device.address, await iox.expected_links(device.primary), held, network, modem.address)
+    return DeviceWrite(device, written=True, pending=table.differs)
 
 
 @dataclass
@@ -209,7 +239,9 @@ async def write_updates_to(
         progress(f"Writing the updates to {device.label}")
         try:
             report.writes.append(
-                await write_device(device, lambda clear, d=device: iox.write_updates(d.primary, until_clear=clear), prompt)
+                await write_device(
+                    iox, device, lambda clear, d=device: iox.write_updates(d.primary, until_clear=clear), prompt
+                )
             )
         except IoxError as error:
             report.failures.append(f"{device.label}: {error}")

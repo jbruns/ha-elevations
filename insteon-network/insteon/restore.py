@@ -51,7 +51,7 @@ async def restore(
             await iox.restore_modem()
         else:
             result.write = await write_device(
-                device, lambda clear: iox.restore_device(device.primary, until_clear=clear), prompt
+                iox, device, lambda clear: iox.restore_device(device.primary, until_clear=clear), prompt
             )
         result.applied = True
     return result
@@ -72,8 +72,8 @@ def render(result: RestoreResult) -> str:
         lines.append(f"Skipped at the prompt: nothing written. {what[0].upper()}{what[1:]} still need a Restore.")
     else:
         lines.append(f"Restored {what}.")
-    if write is not None and write.written and write.pending:
-        lines.append(f"Pending Writes remain on {write.device.label}: run restore again while holding Set.")
+    if write is not None and write.written and write.outcome:
+        lines.append(f"{write.device.label}: {write.outcome}.")
     if result.iox_backup is not None:
         lines.append(f"IoX backup: {result.iox_backup}")
     lines.append("Run `insteon audit` on it to confirm.")
