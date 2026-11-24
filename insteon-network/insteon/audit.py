@@ -123,36 +123,64 @@ async def audit(
     """
     network = await iox.network()
     devices = _unique([resolve_device(name, network, registry) for name in names]) if names else list(network.devices)
+    with rails.modem_operation("audit"):
+        return await audit_devices(
+            iox,
+            network,
+            devices,
+            named=bool(names),
+            read_modem_links=read_modem_links,
+            timeout=timeout,
+            prompt=prompt,
+            progress=progress,
+        )
+
+
+async def audit_devices(
+    iox: IoxClient,
+    network: Network,
+    devices: Sequence[Device],
+    *,
+    named: bool,
+    read_modem_links: bool = True,
+    timeout: float = DEFAULT_TIMEOUT,
+    prompt: Callable[[str], str] = input,
+    progress: Callable[[str], None] = lambda message: None,
+) -> AuditReport:
+    """The Link Audit of these Devices. The caller holds the lock.
+
+    Unless `named`, Battery and disabled Devices are skipped. With `named`,
+    the Modem's Links are compared only where they link to these Devices.
+    """
     modem = await iox.modem()
-    to_read, skipped = _to_read(devices, named=bool(names))
+    to_read, skipped = _to_read(devices, named=named)
 
     held: dict[InsteonAddress, list[Link]] = {}
     unresponsive: list[Unresponsive] = []
     modem_links: list[Link] | None = None
-    with rails.modem_operation("audit"):
-        progress(f"Reading the Links the Controller expects for {len(devices)} Devices")
-        expected = {device.address: await iox.expected_links(device.primary) for device in devices}
-        for number, device in enumerate(to_read, 1):
-            label = f"[{number}/{len(to_read)}] {device.address} {device.name}"
-            if device.battery:
-                answer = prompt(
-                    f"{label} is a Battery Device. Hold its Set button until it enters linking mode, "
-                    "then press Enter (or type s to skip it): "
-                )
-                if answer.strip().lower().startswith("s"):
-                    skipped.append(Skipped(device, "a Battery Device; skipped at the prompt"))
-                    continue
-            progress(f"{label}: reading its Links")
-            try:
-                held[device.address] = await iox.device_links(device.primary, timeout=timeout)
-            except DeviceUnresponsive as error:
-                progress(f"{label}: Unresponsive ({error})")
-                unresponsive.append(Unresponsive(device, str(error)))
-            else:
-                progress(f"{label}: {sum(link.in_use for link in held[device.address])} Links")
-        if read_modem_links:
-            progress("Reading the Modem's Links (about 2 a second)")
-            modem_links = await iox.modem_links(modem.address)
+    progress(f"Reading the Links the Controller expects for {len(devices)} Devices")
+    expected = {device.address: await iox.expected_links(device.primary) for device in devices}
+    for number, device in enumerate(to_read, 1):
+        label = f"[{number}/{len(to_read)}] {device.address} {device.name}"
+        if device.battery:
+            answer = prompt(
+                f"{label} is a Battery Device. Hold its Set button until it enters linking mode, "
+                "then press Enter (or type s to skip it): "
+            )
+            if answer.strip().lower().startswith("s"):
+                skipped.append(Skipped(device, "a Battery Device; skipped at the prompt"))
+                continue
+        progress(f"{label}: reading its Links")
+        try:
+            held[device.address] = await iox.device_links(device.primary, timeout=timeout)
+        except DeviceUnresponsive as error:
+            progress(f"{label}: Unresponsive ({error})")
+            unresponsive.append(Unresponsive(device, str(error)))
+        else:
+            progress(f"{label}: {sum(link.in_use for link in held[device.address])} Links")
+    if read_modem_links:
+        progress("Reading the Modem's Links (about 2 a second)")
+        modem_links = await iox.modem_links(modem.address)
 
     unresponsive_addresses = _addresses(unresponsive)
     tables = [
@@ -161,7 +189,7 @@ async def audit(
     ]
     if modem_links is not None:
         scope = {device.address for device in devices}
-        held_by_modem = [link for link in modem_links if not names or link.address in scope]
+        held_by_modem = [link for link in modem_links if not named or link.address in scope]
         mirrored = [
             _mirror(address, link)
             for address, links in expected.items()
@@ -185,7 +213,7 @@ async def audit(
         tables=tuple(tables),
         unresponsive=tuple(unresponsive),
         skipped=tuple(skipped),
-        named=bool(names),
+        named=named,
         modem_read=modem_links is not None,
     )
 

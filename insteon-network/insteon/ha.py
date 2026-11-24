@@ -1,6 +1,10 @@
-"""Home Assistant over its WebSocket API: registry reads and device removal.
+"""Home Assistant over its WebSocket API, and its REST config API.
 
-The tool Reconciles Home Assistant to the Controller, never the other way round.
+Reads: registries, search, dashboards and the config of automations, scripts
+and scenes. Writes: removing a device, reloading the isy994 integration, and
+saving an automation, script, scene or dashboard config through HA's own
+config API (never `.storage`). The tool Reconciles Home Assistant to the
+Controller, never the other way round.
 """
 
 from __future__ import annotations
@@ -94,6 +98,7 @@ class HaClient:
     def __init__(self, url: str, token: str, *, ipv4_only: bool = False, timeout: float = 30) -> None:
         base = url.strip().rstrip("/")
         self._url = "ws" + base[len("http") :] + "/api/websocket" if base.startswith("http") else base
+        self._base = base if base.startswith("http") else "http" + base[len("ws") :].removesuffix("/api/websocket")
         self._token = token.strip()
         self._family = socket.AF_INET if ipv4_only else 0
         self._timeout = timeout
@@ -182,9 +187,9 @@ class HaClient:
         return sorted(automations, key=lambda automation: automation.entity_id)
 
 
-    async def related(self, entity_id: str) -> dict[str, list[str]]:
-        """What HA's own search finds related to an entity: automations, scripts, groups and so on."""
-        return await self.call("search/related", item_type="entity", item_id=entity_id) or {}
+    async def related(self, item_id: str, *, item_type: str = "entity") -> dict[str, list[str]]:
+        """What HA's own search finds related to an entity (or a device): automations, scripts, groups and so on."""
+        return await self.call("search/related", item_type=item_type, item_id=item_id) or {}
 
     async def config_entries(self) -> list[dict[str, Any]]:
         """Every config entry: domain, title and state, but not its options."""
@@ -197,6 +202,62 @@ class HaClient:
     async def dashboard_config(self, url_path: str | None) -> Any:
         """A dashboard's config, storage or YAML; `url_path` None is the default dashboard."""
         return await self.call("lovelace/config", **({} if url_path is None else {"url_path": url_path}))
+
+    async def rest(self, method: str, path: str, body: Any = None) -> Any:
+        """One call to HA's REST API (`/api/<path>`), as JSON."""
+        url = f"{self._base}/api/{path.lstrip('/')}"
+        headers = {"Authorization": f"Bearer {self._token}"}
+        session = self._session
+        if session is None:
+            raise RuntimeError("HaClient must be used as an async context manager")
+        try:
+            async with session.request(
+                method, url, json=body, headers=headers, timeout=aiohttp.ClientTimeout(total=self._timeout)
+            ) as response:
+                text = await response.text()
+                if response.status >= 400:
+                    raise HaError(f"{method} /api/{path}: HTTP {response.status}: {text[:200]}")
+                return await response.json(content_type=None) if text else None
+        except aiohttp.ClientError as error:
+            raise HaError(f"{method} /api/{path}: {error}") from error
+
+    async def item_config(self, kind: str, entity_id: str) -> dict[str, Any] | None:
+        """The config of an automation, script or scene, as HA's editor reads it, or None.
+
+        None means HA holds no editable config for it, as for one defined in
+        YAML without an `id`.
+        """
+        if kind in ("automation", "script"):
+            try:
+                found = await self.call(f"{kind}/config", entity_id=entity_id)
+            except HaError as error:
+                if error.code == "not_found":
+                    return None
+                raise
+            return (found or {}).get("config")
+        state = await self.state(entity_id)
+        scene_id = (state or {}).get("attributes", {}).get("id")
+        if scene_id is None:
+            return None
+        return await self.rest("GET", f"config/scene/config/{scene_id}")
+
+    async def save_item_config(self, kind: str, entity_id: str, config: dict[str, Any]) -> None:
+        """Save an automation, script or scene through HA's config API, which reloads it."""
+        key = entity_id.split(".", 1)[1] if kind == "script" else config["id"]
+        await self.rest("POST", f"config/{kind}/config/{key}", config)
+
+    async def state(self, entity_id: str) -> dict[str, Any] | None:
+        return next((s for s in await self.call("get_states") if s.get("entity_id") == entity_id), None)
+
+    async def save_dashboard_config(self, url_path: str | None, config: Any) -> None:
+        """Save a storage-mode dashboard's config; `url_path` None is the default dashboard."""
+        await self.call("lovelace/config/save", config=config, **({} if url_path is None else {"url_path": url_path}))
+
+    async def reload_entry(self, entry_id: str) -> None:
+        """Reload a config entry. For isy994 this removes the entities the Controller no longer has."""
+        await self.call(
+            "call_service", domain="homeassistant", service="reload_config_entry", service_data={"entry_id": entry_id}
+        )
 
     async def remove_config_entry(self, device_id: str, config_entry_id: str) -> None:
         """Detach a device from a config entry; HA deletes a device left with none."""

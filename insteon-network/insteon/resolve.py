@@ -1,4 +1,4 @@
-"""Device resolution: a DEVICE argument names exactly one Device.
+"""Resolution: a DEVICE argument names exactly one Device, and likewise a Button or a Scene.
 
 It may be an Insteon Address in any format (`1A.2B.3C`, `AA B C 1`), the IoX
 name of the Device or of one of its Buttons, or the ID of a Home Assistant
@@ -39,6 +39,46 @@ def resolve_device(text: str, network: Network, registry: HaRegistry | None) -> 
     if _ENTITY_ID.fullmatch(query):
         return _from_entity(query, network, registry)
     return _from_name(query, network)
+
+
+def resolve_scene(text: str, network: Network) -> Scene:
+    """The one Scene `text` names: its Scene address (`12345`) or its IoX name."""
+    query = text.strip()
+    found = network.scene(query)
+    if found is not None:
+        return found
+    named = [scene for scene in network.scenes if scene.name.casefold() == query.casefold()]
+    if not named:
+        raise ResolveError(f"no Scene on the Controller is at or named {query!r}")
+    if len(named) > 1:
+        listed = ", ".join(f"{scene.name} ({scene.address})" for scene in named)
+        raise ResolveError(f"{query!r} is ambiguous: {listed}; give the Scene address")
+    return named[0]
+
+
+def resolve_button(text: str, network: Network, registry: HaRegistry | None) -> ButtonAddress:
+    """The one Button `text` names: a Button address (`AA BB CC 3`) or a Button's IoX name.
+
+    Anything else that names a Device (its Insteon Address, name or HA entity)
+    names its primary Button: the load of a dimmer or relay.
+    """
+    query = text.strip()
+    button = ButtonAddress.try_parse(query)
+    if button is not None:
+        if network.button(button) is None:
+            raise ResolveError(f"the Controller has no Button at {button}")
+        return button
+    named = [
+        b.address
+        for device in network.devices
+        for b in device.buttons
+        if b.name.casefold() == query.casefold() and b.address != device.primary
+    ]
+    if len(named) == 1:
+        return named[0]
+    if len(named) > 1:
+        raise ResolveError(f"{query!r} is ambiguous: {', '.join(map(str, named))}; give the Button address")
+    return resolve_device(query, network, registry).primary
 
 
 def ha_entity_ids(target: Device | Scene, network: Network, registry: HaRegistry) -> tuple[str, ...]:

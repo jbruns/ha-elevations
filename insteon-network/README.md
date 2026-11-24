@@ -15,7 +15,14 @@ uv run insteon programs > .private/iox-programs.txt   # IoX programs and variabl
 uv run insteon audit                     # the Link Audit of every Device and the Modem (minutes)
 uv run insteon audit 1A.2B.3C            # only some Devices
 uv run insteon refs light.example        # every Reference to a Device's entities
+uv run insteon restore 1A.2B.3C          # Restore a Device's Links (a dry run; add --apply)
+uv run insteon restore modem             # Restore the Modem's Links
+uv run insteon remove 1A.2B.3C --clean   # the removal plan, and the diffs to live HA
+uv run insteon add 1A.2B.3C "Example"    # add a Device, erasing its Links
+uv run insteon scene add "Example Scene" "1A 2B 3C 3" --responder
 ```
+
+Every command that changes something is a dry run until given `--apply`.
 
 `insteon-network/` is a member of the repo's uv workspace, and the root project depends on it, so `uv sync` installs the command. The Python package is `insteon`, because a package name can't contain a hyphen.
 
@@ -27,7 +34,7 @@ The tool reads its credentials from a gitignored folder, never from the repo (AD
 
 | File | Holds |
 | --- | --- |
-| `eisy/iox.local.env` | `IOX_HOST`, `IOX_PORT` (8443), `IOX_PROTO` (https), `IOX_USER_NAME`, `IOX_PASSWORD`; optionally `IOX_CERT_SHA256`. For SSH (`programs`): `IOX_SSH_USER`, `IOX_SSH_PASSWORD`, optionally `IOX_SSH_PORT` (22) |
+| `eisy/iox.local.env` | `IOX_HOST`, `IOX_PORT` (8443), `IOX_PROTO` (https), `IOX_USER_NAME`, `IOX_PASSWORD`; optionally `IOX_CERT_SHA256`. For SSH (`programs`, and the IoX backup every command that changes IoX takes): `IOX_SSH_USER`, `IOX_SSH_PASSWORD`, optionally `IOX_SSH_PORT` (22) |
 | `eisy/known_hosts` | Optional: the Controller's SSH host key. Without it, the tool checks `~/.ssh/known_hosts` |
 | `ha-url` | The Home Assistant URL, such as `https://ha.example.com` |
 | `ha-token` | A long-lived access token |
@@ -88,15 +95,57 @@ Lists every Reference to a Device's entities and changes nothing. The Device's e
 
 The output is printed only. Never paste it into tracked files: it holds real entity IDs.
 
+### `restore DEVICE|modem`
+
+Restores a Device's Links (`RestoreDevice`) or the Modem's (`ReplaceModem`) from the Controller's database. The Modem's takes minutes for a full table. For a Battery Device, the tool asks the Administrator to hold its Set button first, and reports any Pending Writes IoX still holds afterwards. Run `audit` on it afterwards to confirm.
+
+### `remove DEVICE [--clean]`
+
+Removes a Device and cleans up after it. In order:
+
+1. Takes each of its Buttons out of each Scene (`RemoveFromGroup`).
+2. Writes the updates (`WriteDeviceUpdates`) to it and to each of its former Scene peers: the other Devices in those Scenes.
+3. Removes it (`RemoveNode`).
+4. Runs a Link Audit on the former Scene peers and Restores each that differs. Reads the Modem's Links and Restores the Modem if it still holds a Link to the removed Device. `--no-modem-links` skips that read.
+5. Reconciles HA: reloads the isy994 integration, then removes the Stale HA Devices, as `prune` does.
+6. With `--clean`, takes the Device's References out of live HA.
+
+First, it reads the Device's Links, as `audit` does, even in a dry run. A Device that does not answer is an Unresponsive Device: step 2 writes nothing to it, but its peers and the Modem are still cleaned. For a Battery Device, the tool asks the Administrator to hold its Set button, or to type `u` if it is gone. Battery peers are skipped in step 4; audit them by name afterwards.
+
+References are always listed: live HA's as the edits `--clean` would make or as hand edits, and the repo's, which are never edited. With `--clean`, a dry run prints each edit as a diff. `--clean --apply` saves them through HA's config API, never `.storage`, after the Reconcile:
+
+- An entity is taken out of each list that names it. A trigger, condition, action, card or row left naming nothing is deleted, and so is a stack or card it leaves empty.
+- An automation, script, scene or dashboard is never deleted. Nor is a branch whose condition goes while its actions stay, or anything named in a template. Those are left for a hand edit, and so are groups, persons, helpers, YAML-defined items and YAML dashboards.
+- An automation's own conditions may be left empty, which makes it run more often. Read the diff.
+
+### `add ADDRESS NAME`
+
+Adds a Device by its Insteon Address (`AddNode`), erasing its Links. `--from-links` keeps them instead, and has IoX add the Devices they name and build Scenes from them. `--battery` prompts to hold the Set button first; a new Device that ignores the Modem may need that too. Then it Reconciles HA and prints the new entity IDs.
+
+### `scene`
+
+```sh
+uv run insteon scene create NAME [--address N]
+uv run insteon scene delete SCENE
+uv run insteon scene add SCENE BUTTON (--controller | --responder)
+uv run insteon scene remove SCENE BUTTON
+uv run insteon scene level SCENE RESPONDER PERCENT [--ramp INDEX] [--controller BUTTON]
+```
+
+SCENE is a Scene address or IoX name. BUTTON is a Button address (`1A 2B 3C 3`), a Button's IoX name, or anything that names a Device, which means its primary Button. A Button controls at most one Scene, so `add --controller` refuses a Button that already controls another. After each change, the tool writes the updates to every Device whose Links it changed. `level` sets the on level IoX sends, as 0-255, for the Scene itself or for one Controller Button. Creating or deleting a Scene Reconciles HA, which adds or removes its switch.
+
 ## Rails
 
 Every command that changes something follows these rails (`insteon/rails.py`):
 
 - **Dry run** unless given `--apply`.
 - **Lock**: `<private>/insteon.lock` (an `flock`). A second command fails at once and names the holder.
-- **Backups** go to `<private>/insteon-backups/<time>-<command>/` before any change. Here is what's real today:
-  - Home Assistant: the device registry, entity registry and isy994 config entries, as JSON. This is a record to re-create from by hand, not a Home Assistant backup.
-  - IoX: not built yet. No command changes IoX so far. The first one that does must add the full backup over SSH (`/var/isy/FILES/CONF/`) as a `Backup`.
+- **Backups** are taken under the lock, before any change. A backup that fails stops the command.
+  - IoX: all of `/var/isy/FILES/CONF/` as one tar, read over SSH as root (`sudo -S`, the password on stdin), to `<private>/eisy/backups/<time>.tar`. About 10 MB, in a few seconds. Every command that changes IoX takes it.
+  - Home Assistant registries: the device registry, entity registry and isy994 config entries, as JSON, in `<private>/insteon-backups/<time>-<command>/`. This is a record to re-create from by hand, not a Home Assistant backup.
+  - Home Assistant config: `remove --clean` writes each automation, script, scene and dashboard config it is about to save, as read just before, to `ha-config.json` in the same folder. To undo an edit, POST that config back through HA's config API, or paste it into the editor. A full Home Assistant backup isn't taken: it is slow, and the edits it would cover are these.
+- **One Modem operation at a time**: each write waits until IoX reports it is no longer busy.
+- **Battery Devices**: the tool prompts the Administrator to hold the Set button before writing, one Device at a time. Then it waits for IoX to finish and reports any Pending Writes left.
 
 ## Code
 
@@ -108,9 +157,10 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 | `insteon/program.py` | IoX programs and variables, with no wire formats |
 | `insteon/ha.py` | Home Assistant's WebSocket API |
 | `insteon/resolve.py` | DEVICE argument → Device, and a Device or Scene → its HA entities |
-| `insteon/rails.py` | Dry run, lock and backups |
+| `insteon/rails.py` | Dry run, lock, backups and the Battery Device prompt |
 | `insteon/config.py` | Finds the private folder and reads the credentials |
-| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/audit.py`, `insteon/refs.py` | The commands |
+| `insteon/clean.py` | Taking a Device's References out of live HA's configs |
+| `insteon/inventory.py`, `insteon/prune.py`, `insteon/programs.py`, `insteon/audit.py`, `insteon/refs.py`, `insteon/restore.py`, `insteon/remove.py`, `insteon/add.py`, `insteon/scene.py` | The commands |
 | `insteon/cli.py` | The `insteon` entry point |
 
 ## Tests
@@ -119,7 +169,9 @@ Every command that changes something follows these rails (`insteon/rails.py`):
 uv run pytest insteon-network
 ```
 
-The tests run the real clients against a fake IoX, a fake SSH login on the Controller, and a fake Home Assistant, all on localhost (`tests/insteon_fakes.py`). These serve made-up responses in IoX 6.0.5's shapes, with placeholder names, addresses and uuid. Real captured responses stay in `.private/`.
+The tests run the real clients against a fake IoX, a fake SSH login on the Controller, and a fake Home Assistant, all on localhost (`tests/insteon_fakes.py`). These serve made-up responses in IoX 6.0.5's shapes, with placeholder names, addresses and uuid. Real captured responses stay in `.private/`. The fake IoX records every write and changes its network the way IoX would, so the tests assert the exact calls, their order and their parameters.
+
+The writes have been tested only against the fake. What they send follows the Controller's own schema; how IoX answers is still to confirm by hand ([research/iox-api.md](./research/iox-api.md) §9).
 
 ## After re-adding isy994
 

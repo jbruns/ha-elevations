@@ -1,9 +1,14 @@
-"""`insteon prune`: remove Stale HA Devices.
+"""`insteon prune`: remove Stale HA Devices, and the Reconcile of HA.
 
 A Stale HA Device is an isy994 device in Home Assistant that matches no Device
 the Controller has. isy994's own removal check is broken (it allows removing
 any isy994 device, live ones included), so the tool decides for itself, from
 the Controller's `/rest/nodes`, what is stale.
+
+`reconcile` is what a command that changed the Controller runs last: reload the
+isy994 integration, which removes the entities the Controller no longer has
+and adds new ones, then remove the Stale HA Devices that leaves
+(research/pyisy-and-ha-isy994.md §3).
 """
 
 from __future__ import annotations
@@ -100,13 +105,29 @@ async def prune(iox: IoxClient, ha: HaClient, rails: Rails) -> PruneResult:
     if not rails.apply or not result.removable:
         return result
     async with rails.changing("prune", [HaRegistryBackup(ha)]) as backup:
-        # Read both sides again under the lock: they may have changed since the plan.
-        result = PruneResult(find_stale(await iox.network(), await ha.registry()), backup=backup)
-        for device in result.removable:
-            for entry in device.config_entries:
-                await ha.remove_config_entry(device.device_id, entry)
-            result.removed.append(device)
+        result = await remove_stale(iox, ha)
+        result.backup = backup
     return result
+
+
+async def remove_stale(iox: IoxClient, ha: HaClient) -> PruneResult:
+    """Remove the Stale HA Devices no entity uses. The caller holds the lock and has backed up.
+
+    Both sides are read again here: they may have changed since any plan.
+    """
+    result = PruneResult(find_stale(await iox.network(), await ha.registry()))
+    for device in result.removable:
+        for entry in device.config_entries:
+            await ha.remove_config_entry(device.device_id, entry)
+        result.removed.append(device)
+    return result
+
+
+async def reconcile(iox: IoxClient, ha: HaClient) -> PruneResult:
+    """Reload the isy994 integration, then remove the Stale HA Devices. The caller holds the lock."""
+    for entry in sorted((await ha.registry()).isy994_entries):
+        await ha.reload_entry(entry)
+    return await remove_stale(iox, ha)
 
 
 def render(result: PruneResult, *, applying: bool) -> str:

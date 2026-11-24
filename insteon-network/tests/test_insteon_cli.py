@@ -2,7 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from insteon_fakes import FakeHa, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, USER
+from insteon_fakes import FakeHa, FakeIox, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, TOKEN, USER
 from insteon_fakes import eisy_ssh, fake_ha, fake_iox, fake_ssh, ha_url, iox_url  # noqa: F401 (fixtures)
 from yarl import URL
 
@@ -144,3 +144,71 @@ async def test_refs_outside_a_git_repo_fails_plainly(
     assert await run(["--private-dir", str(private), "refs", "--repo", str(tmp_path / "nowhere"), "AA.BB.CC"]) == 1
 
     assert "cannot list files" in capsys.readouterr().err
+
+
+# Commands that change IoX ------------------------------------------------------
+
+
+async def test_restore_is_a_dry_run_without_apply(
+    programs_private: Path, fake_iox: FakeIox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(programs_private), "restore", "modem"]) == 0
+
+    assert "Dry run: nothing changed" in capsys.readouterr().out
+    assert fake_iox.writes() == []
+
+
+async def test_restore_with_apply_backs_up_iox_into_the_private_folder_first(
+    programs_private: Path, fake_iox: FakeIox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(programs_private), "restore", "AA.BB.CC", "--apply"]) == 0
+
+    (archive,) = (programs_private / "eisy" / "backups").iterdir()
+    assert f"IoX backup: {archive}" in capsys.readouterr().out
+    assert fake_iox.writes() == [("RestoreDeviceFromNode", {"node": "AA BB CC 1", "flag": "0"})]
+
+
+async def test_a_changing_command_without_the_ssh_login_fails_before_any_write(
+    private: Path, fake_iox: FakeIox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await run(["--private-dir", str(private), "restore", "modem", "--apply"]) == 1
+
+    assert "does not set IOX_SSH_USER" in capsys.readouterr().err
+    assert fake_iox.writes() == []
+
+
+async def test_remove_prints_its_plan_and_progress_apart(
+    programs_private: Path, tmp_path: Path, fake_iox: FakeIox, fake_ha: FakeHa, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+
+    assert await run(["--private-dir", str(programs_private), "remove", "--repo", str(repo), "Example Relay"]) == 0
+
+    captured = capsys.readouterr()
+    assert "Would remove 0A.0B.0C Example Relay" in captured.out
+    assert "to see whether it answers" in captured.err
+    assert fake_iox.writes() == [] and fake_ha.writes() == []
+
+
+async def test_scene_and_add_are_dry_runs_without_apply(
+    programs_private: Path, fake_iox: FakeIox, fake_ha: FakeHa, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base = ["--private-dir", str(programs_private)]
+    assert await run([*base, "scene", "add", "Example Scene", "11 22 33 4", "--responder"]) == 0
+    assert await run([*base, "scene", "level", "12345", "AA.BB.CC", "40"]) == 0
+    assert await run([*base, "add", "7A.7B.7C", "Example New"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.count("Dry run: nothing changed") == 3
+    assert fake_iox.writes() == [] and fake_ha.writes() == []
+
+
+async def test_a_scene_change_that_breaks_a_rule_fails_plainly(
+    programs_private: Path, fake_iox: FakeIox, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base = ["--private-dir", str(programs_private)]
+    assert await run([*base, "scene", "add", "Example Empty Scene", "11 22 33 3", "--controller", "--apply"]) == 1
+
+    assert "a Button controls at most one Scene" in capsys.readouterr().err
+    assert fake_iox.writes() == []
