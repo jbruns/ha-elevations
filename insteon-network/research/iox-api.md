@@ -58,6 +58,8 @@ Every call is an HTTP GET with Basic auth, except file uploads [WSSDK §6]. **H*
 
 ### Read
 - `/rest/nodes`: Devices, Buttons, Scenes and folders. Each `<group>` lists members as `<link type="16|32">`, where 16 = Controller Button and 32 = Responder Button [REST-wiki]. **H**, **V** (fetched)
+  - On IoX 6.0.5, Responder Buttons come as `<link type="0">`, not 32. So the tool treats 16 as a Controller Button and any other type as a Responder Button. **V**
+  - Node `flag` bits: 0x80 a Device's primary node, 0x10 in error (IoX also sends an `NE` event for these on subscribe), 0x08 the root Scene that holds every node, 0x04 a Scene. **V** (observed), **H** (PyISY's flag names).
 - `/rest/nodes/<addr>`, `/rest/nodes/<addr>/notes`, `/rest/status[/<addr>]` [REST-wiki]. **H**
 - `/rest/config` (uuid, firmware, features). **V**
 - `/rest/programs?subfolders=true`: metadata only (id, parent, name, status, enabled, run-at-startup, last run times). No If/Then/Else bodies [REST-wiki]. **H**, **V**
@@ -169,7 +171,10 @@ Body: `<command>G_ISY_ALL|G_DEV_ALL|G_PLM_ALL|STOP</command><node>AA BB CC 1</no
 
 - `G_ISY_ALL` returns the Links the Controller expects the Device to hold. It answers at once, from cache. **V**
 - `G_DEV_ALL` reads the Links from the Device itself. One dimmer with 6 records took about 6 s. **V** Old Devices may take minutes, with 20-30 s between records [NUCORE-wrapper `insteon_diag.py`]. **H**
-- `G_PLM_ALL` reads the Modem's table [EISYUI-family]. **H**, untested here.
+- `G_PLM_ALL` reads the Modem's table [EISYUI-family]. **H** On IoX 6.0.5 it streams nothing unless `node` is the Modem's own address (`AA BB CC`, from `G_PLM_INFO`). eisy-ui sends an empty `node`. **V**
+  - Records arrive as `_2` with `action` 1 and an empty `<node>`. `ix` and `ad` are both the record index. `fl`, `gr`, `id` and `data` are as below. **V**
+  - The read is bracketed by `_5` busy 1 and 0, and the SOAP call returns only when it is done. About 2 records a second: 197 records took 100 s. No `fl` 0 record ends the table. **V**
+- `G_PLM_INFO` answers at once with plain text, not a SOAP envelope: `AA.BB.CC v9B / Connected` (Modem address, firmware, state) [EISYUI-family]. **H**, **V**
 - `STOP` cancels a read [EISYUI-family]. **H**
 - Records arrive on the event stream as `<control>_2</control>`. **V** (UDI's diagnostic describes `_7` progress events [NUCORE-wrapper]; on IoX 6.0.5 the records came as `_2`.)
   - `action` 3 is an expected record (`G_ISY_ALL`). `action` 2 is a record read from the Device (`G_DEV_ALL`). **V**

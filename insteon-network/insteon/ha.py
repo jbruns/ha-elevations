@@ -1,0 +1,155 @@
+"""Home Assistant over its WebSocket API: registry reads and device removal.
+
+The tool Reconciles Home Assistant to the Controller, never the other way round.
+"""
+
+from __future__ import annotations
+
+import itertools
+import socket
+from collections.abc import Sequence
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any
+
+import aiohttp
+
+DOMAIN = "isy994"
+
+
+class HaError(RuntimeError):
+    """Home Assistant refused a call or could not be reached."""
+
+
+def controller_suffix(identifier: str, uuid: str) -> str | None:
+    """What an isy994 ID names on the Controller with this uuid.
+
+    isy994 writes device identifiers and entity unique IDs as
+    `<uuid>_<suffix>`: a Button address (`AA B C 1`, perhaps with its own
+    `_OL`-style suffix), a Scene address, or `variables` / `network`. None
+    when the ID belongs to another Controller.
+    """
+    prefix = f"{uuid}_"
+    return identifier[len(prefix) :] if identifier.startswith(prefix) else None
+
+
+@dataclass(frozen=True)
+class HaRegistry:
+    """The parts of Home Assistant's registries the tool reads, as returned by HA."""
+
+    devices: Sequence[dict[str, Any]]
+    entities: Sequence[dict[str, Any]]
+    config_entries: Sequence[dict[str, Any]]
+    """The Controller integration's config entries."""
+
+    @property
+    def isy994_entries(self) -> frozenset[str]:
+        return frozenset(entry["entry_id"] for entry in self.config_entries)
+
+    def isy994_devices(self) -> list[dict[str, Any]]:
+        """Devices with an isy994 identifier."""
+        return [device for device in self.devices if self.isy994_identifiers(device)]
+
+    @staticmethod
+    def isy994_identifiers(device: dict[str, Any]) -> list[str]:
+        return [value for domain, value in device.get("identifiers", []) if domain == DOMAIN]
+
+    def isy994_entries_of(self, device: dict[str, Any]) -> tuple[str, ...]:
+        """The isy994 config entries a device belongs to."""
+        entries = self.isy994_entries
+        return tuple(entry for entry in device.get("config_entries", []) if entry in entries)
+
+    def isy994_entity(self, entity_id: str) -> dict[str, Any] | None:
+        return next(
+            (e for e in self.entities if e.get("entity_id") == entity_id and e.get("platform") == DOMAIN),
+            None,
+        )
+
+    def device(self, device_id: str | None) -> dict[str, Any] | None:
+        return next((device for device in self.devices if device.get("id") == device_id), None)
+
+    def entities_of(self, device_id: str) -> list[dict[str, Any]]:
+        return [entity for entity in self.entities if entity.get("device_id") == device_id]
+
+
+class HaClient:
+    """One authenticated WebSocket session. Use as an async context manager."""
+
+    def __init__(self, url: str, token: str, *, ipv4_only: bool = False, timeout: float = 30) -> None:
+        base = url.strip().rstrip("/")
+        self._url = "ws" + base[len("http") :] + "/api/websocket" if base.startswith("http") else base
+        self._token = token.strip()
+        self._family = socket.AF_INET if ipv4_only else 0
+        self._timeout = timeout
+        self._ids = itertools.count(1)
+        self._session: aiohttp.ClientSession | None = None
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
+
+    async def __aenter__(self) -> HaClient:
+        self._session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(family=self._family))
+        try:
+            self._ws = await self._session.ws_connect(self._url, timeout=aiohttp.ClientWSTimeout(ws_close=10))
+            await self._receive()  # auth_required
+            await self._ws.send_json({"type": "auth", "access_token": self._token})
+            reply = await self._receive()
+            if reply.get("type") != "auth_ok":
+                raise HaError("Home Assistant refused the access token")
+        except (aiohttp.ClientError, TimeoutError) as error:
+            await self.__aexit__(None, None, None)
+            raise HaError(f"cannot reach Home Assistant: {error}") from error
+        except HaError:
+            await self.__aexit__(None, None, None)
+            raise
+        return self
+
+    async def __aexit__(
+        self, kind: type[BaseException] | None, error: BaseException | None, trace: TracebackType | None
+    ) -> None:
+        if self._ws is not None:
+            await self._ws.close()
+        if self._session is not None:
+            await self._session.close()
+        self._ws = self._session = None
+
+    @property
+    def _socket(self) -> aiohttp.ClientWebSocketResponse:
+        if self._ws is None:
+            raise RuntimeError("HaClient must be used as an async context manager")
+        return self._ws
+
+    async def _receive(self) -> dict[str, Any]:
+        try:
+            message = await self._socket.receive_json(timeout=self._timeout)
+        except TypeError as error:  # a close frame instead of JSON
+            raise HaError("Home Assistant closed the connection") from error
+        if not isinstance(message, dict):
+            raise HaError(f"unexpected message from Home Assistant: {message!r}")
+        return message
+
+    async def call(self, kind: str, **payload: Any) -> Any:
+        """Send one command and return its result. Raises HaError if it fails."""
+        message_id = next(self._ids)
+        await self._socket.send_json({"id": message_id, "type": kind, **payload})
+        while True:
+            reply = await self._receive()
+            if reply.get("id") == message_id and reply.get("type") == "result":
+                break
+        if not reply.get("success"):
+            error = reply.get("error") or {}
+            raise HaError(f"{kind}: {error.get('code', 'error')}: {error.get('message', '')}".rstrip(": "))
+        return reply.get("result")
+
+    async def registry(self) -> HaRegistry:
+        """Devices, entities and the isy994 config entries, read in one go."""
+        devices = await self.call("config/device_registry/list")
+        entities = await self.call("config/entity_registry/list")
+        entries = await self.call("config_entries/get", domain=DOMAIN)
+        return HaRegistry(devices=devices, entities=entities, config_entries=entries)
+
+    async def remove_config_entry(self, device_id: str, config_entry_id: str) -> None:
+        """Detach a device from a config entry; HA deletes a device left with none."""
+        await self.call(
+            "config/device_registry/remove_config_entry",
+            device_id=device_id,
+            config_entry_id=config_entry_id,
+        )
