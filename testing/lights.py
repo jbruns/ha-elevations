@@ -28,8 +28,11 @@ class SettableLight(LightEntity):
         self._attr_brightness: int | None = None
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    async def set(self, *, on: bool, brightness: int | None = None) -> None:
+    async def set(
+        self, *, on: bool, brightness: int | None = None, available: bool = True
+    ) -> None:
         """Set the light as if changed by hand, without recording a call."""
+        self._attr_available = available
         self._apply(on=on, brightness=brightness)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -74,12 +77,39 @@ class SettableSwitch(SwitchEntity):
         self.async_write_ha_state()
 
 
+class SettableSceneSwitch(SettableSwitch):
+    """An isy994 Scene switch: on while any member is on, and reporting in
+    group_all_on whether every member is."""
+
+    def __init__(self, entity_id: str, name: str) -> None:
+        super().__init__(entity_id, name)
+        self._all_on = False
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"group_all_on": "on" if self._all_on else "off"}
+
+    async def set(self, *, on: bool, all_on: bool | None = None) -> None:
+        """Set the members as if changed at the wall; all_on defaults to on."""
+        self._all_on = on if all_on is None else all_on
+        await super().set(on=on)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        self._all_on = True
+        await super().async_turn_on(**kwargs)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        self._all_on = False
+        await super().async_turn_off(**kwargs)
+
+
 @dataclass
 class Lights:
     leader_light: SettableLight
     follower: SettableLight
     other_follower: SettableLight
     leader_switch: SettableSwitch
+    keypad_sync: SettableSceneSwitch
 
 
 @pytest.fixture
@@ -88,9 +118,10 @@ async def lights(hass: HomeAssistant) -> Lights:
     follower = SettableLight("light.example_follower", "Example Follower")
     other_follower = SettableLight("light.example_other_follower", "Example Other Follower")
     leader_switch = SettableSwitch("switch.example_leader", "Example Leader")
+    keypad_sync = SettableSceneSwitch("switch.example_keypad_sync", "Example Keypad Sync")
     setup_test_component_platform(hass, "light", [leader_light, follower, other_follower])
-    setup_test_component_platform(hass, "switch", [leader_switch])
+    setup_test_component_platform(hass, "switch", [leader_switch, keypad_sync])
     assert await async_setup_component(hass, "light", {"light": {"platform": "test"}})
     assert await async_setup_component(hass, "switch", {"switch": {"platform": "test"}})
     await hass.async_block_till_done()
-    return Lights(leader_light, follower, other_follower, leader_switch)
+    return Lights(leader_light, follower, other_follower, leader_switch, keypad_sync)

@@ -1,0 +1,81 @@
+blueprint:
+  name: Keypad Sync
+  description: >-
+    Keeps a light's keypad buttons lit to match the light by switching its
+    Keypad Sync Scene, an isy994 Scene switch. It switches the Scene only when
+    the buttons still don't match after the settle time, so a press at the
+    wall, which lights them through the room Scene, sends nothing more.
+    Uses entity triggers, not device triggers.
+    See lighting/README.md in jbruns/ha-elevations.
+  domain: automation
+  source_url: https://github.com/jbruns/ha-elevations/blob/main/lighting/blueprints/automation/lighting_keypad_sync.yaml
+  homeassistant:
+    min_version: "2025.4.0"
+  input:
+    light:
+      name: Light
+      description: The light whose keypad buttons should follow it.
+      selector:
+        entity:
+          filter:
+            domain: light
+    keypad_sync_scene:
+      name: Keypad Sync Scene
+      description: The IoX Scene switch that holds only this light's keypad buttons.
+      selector:
+        entity:
+          filter:
+            integration: isy994
+            domain: switch
+    settle_time:
+      name: Settle time
+      description: >-
+        How long to wait after the light changes before checking the keypad
+        buttons, so a press at the wall has time to light them through the room
+        Scene.
+      default:
+        hours: 0
+        minutes: 0
+        seconds: 2
+      selector:
+        duration:
+
+mode: restart
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input light
+    not_from:
+      - unavailable
+      - unknown
+    to:
+      - "on"
+      - "off"
+
+actions:
+  - delay: !input settle_time
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: !input light
+            state: "on"
+          - condition: state
+            entity_id: !input keypad_sync_scene
+            attribute: group_all_on
+            state: "off"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input keypad_sync_scene
+      - conditions:
+          - condition: state
+            entity_id: !input light
+            state: "off"
+          - condition: state
+            entity_id: !input keypad_sync_scene
+            state: "on"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input keypad_sync_scene

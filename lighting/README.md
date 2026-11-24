@@ -4,7 +4,7 @@ Turns lights on and off with the sun, the hour, and each other. The glossary is 
 
 This folder holds:
 
-- `blueprints/automation/`: the Follow, Exterior Lights, and Night Timeout blueprints.
+- `blueprints/automation/`: the Follow, Exterior Lights, Night Timeout, and Keypad Sync blueprints.
 - `tests/`: runs the blueprints in a real Home Assistant core.
 
 Home Assistant imports these blueprints by URL, so they take every entity and every policy number as an input (ADR 0004). They use entity triggers rather than device triggers, so replacing a device does not silently break an automation.
@@ -80,3 +80,31 @@ Home Assistant imports these blueprints by URL, so they take every entity and ev
 - Turn the light on during the day and leave it on for the Duration; it should stay on.
 - Turn the light off before the Duration; the automation should not call it again.
 - For night hours that cross midnight, test both before and after midnight if practical.
+
+## Keypad Sync
+
+`blueprints/automation/lighting_keypad_sync.yaml` keeps a light's keypad buttons lit to match the light (**Keypad Sync**). It replaces the IoX "Sync" program for that light (ADR 0012).
+
+Each Insteon light has a cross-linked room Scene, so a press at the wall already sets the light and every keypad button for it. A change from Home Assistant commands the light alone, so its buttons stay as they were. The light's Keypad Sync Scene holds only those buttons; isy994 shows it as a `switch`.
+
+- When the light turns on or off, the blueprint waits for the **Settle time** (2 seconds by default), then checks the Scene.
+- If the light is on and not every button is lit, it turns the Scene on. If the light is off and any button is lit, it turns the Scene off.
+- If the buttons already match, it sends nothing. So a press at the wall, which lit them through the room Scene, costs no extra Insteon traffic, whatever the change's `context` says.
+- If the light changes again during the Settle time, the wait starts over, and only the light's last state counts.
+- Changes from or to `unavailable` or `unknown` are ignored, so restarts and reloads don't switch the Scene.
+- The Scene holds only keypad buttons, not the light, and the blueprint never triggers on the Scene, so switching it can't feed back into the light.
+
+It reads isy994's `group_all_on` attribute to tell "every button lit" from "some buttons lit".
+
+### Set up
+
+1. Import the blueprint: Settings → Automations & Scenes → Blueprints → Import Blueprint, with this file's GitHub URL.
+2. Create one automation from it for each light that has a Keypad Sync Scene.
+3. Pick the Light and its Keypad Sync Scene switch. Keep the default Settle time unless a press at the wall takes longer to light the buttons.
+4. Once it works, turn off the IoX Sync program for the same light. Until then the two run side by side, which is harmless but doubles the Scene commands.
+
+### Check it works
+
+- Turn the light on from Home Assistant. About 2 seconds later its keypad buttons should light, and the trace should show `switch.turn_on` on the Scene.
+- Turn it off from Home Assistant. The buttons should go dark.
+- Press the light's button at the wall. The buttons change with it, and the trace should show no action after the Settle time.
