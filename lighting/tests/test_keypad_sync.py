@@ -35,12 +35,15 @@ class KeypadSync:
             ],
         )
 
+    async def light_became_unknown(self) -> None:
+        await self.light_changed_from_ha(None)
+
     async def light_changed_from_ha(self, on: bool | None, *, available: bool = True) -> None:
         """The light changes alone, as from HA; its keypad buttons stay as they were."""
         await self.devices.light.set(on=on, available=available)
         await self.clock.let_runs_start()
 
-    async def wall(self, on: bool) -> None:
+    async def pressed_at_wall(self, on: bool) -> None:
         """A press at the wall: the cross-linked room Scene sets the light and
         every keypad button together."""
         await self.devices.keypad_sync_scene.set(on=on)
@@ -74,7 +77,7 @@ async def test_a_light_turned_off_from_ha_turns_its_keypad_buttons_off(
     hass: HomeAssistant, clock: Clock, keypad_lights: KeypadLights
 ) -> None:
     sync = KeypadSync(hass, clock, keypad_lights)
-    await sync.wall(True)
+    await sync.pressed_at_wall(True)
     await sync.start()
 
     await sync.light_changed_from_ha(False)
@@ -89,9 +92,9 @@ async def test_a_press_at_the_wall_sends_no_scene_command(
     sync = KeypadSync(hass, clock, keypad_lights)
     await sync.start()
 
-    await sync.wall(True)
+    await sync.pressed_at_wall(True)
     await sync.wait(2)
-    await sync.wall(False)
+    await sync.pressed_at_wall(False)
     await sync.wait(2)
 
     assert sync.scene_calls == []
@@ -158,7 +161,7 @@ async def test_a_light_coming_back_from_unknown_is_ignored(
     sync = KeypadSync(hass, clock, keypad_lights)
     await sync.start()
 
-    await sync.light_changed_from_ha(None)
+    await sync.light_became_unknown()
     await sync.light_changed_from_ha(True)
     await sync.wait(2)
 
