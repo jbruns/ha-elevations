@@ -92,8 +92,8 @@ class Automation:
     """HA device IDs, as in device triggers and targets."""
 
 
-class _Closed(Exception):
-    """The WebSocket closed under us; `call` reopens it once."""
+class _Unsent(Exception):
+    """The WebSocket was closed before a command left the client, so HA never saw it."""
 
 
 class HaClient:
@@ -132,7 +132,7 @@ class HaClient:
             reply = await self._receive()
             if reply.get("type") != "auth_ok":
                 raise HaError("Home Assistant refused the access token")
-        except (aiohttp.ClientError, TimeoutError) as error:
+        except aiohttp.ClientError as error:
             raise HaError(f"cannot reach Home Assistant: {error}") from error
 
     async def __aexit__(
@@ -152,12 +152,12 @@ class HaClient:
 
     async def _exchange(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         if self._socket.closed:
-            raise _Closed
+            raise _Unsent
         message_id = next(self._ids)
         try:
             await self._socket.send_json({"id": message_id, "type": kind, **payload})
         except aiohttp.ClientConnectionResetError as error:
-            raise _Closed from error
+            raise _Unsent from error
         while True:
             reply = await self._receive()
             if reply.get("id") == message_id and reply.get("type") == "result":
@@ -167,7 +167,9 @@ class HaClient:
         try:
             message = await self._socket.receive_json(timeout=self._timeout)
         except TypeError as error:  # a close frame instead of JSON
-            raise _Closed from error
+            raise HaError("Home Assistant closed the connection") from error
+        except TimeoutError as error:
+            raise HaError(f"Home Assistant did not answer within {self._timeout:g} s") from error
         if not isinstance(message, dict):
             raise HaError(f"unexpected message from Home Assistant: {message!r}")
         return message
@@ -175,18 +177,18 @@ class HaClient:
     async def call(self, kind: str, **payload: Any) -> Any:
         """Send one command and return its result. Raises HaError if it fails.
 
-        A socket closed since the last command (a proxy's idle timeout during a long Modem
-        Restore, say) is reopened once and the command sent again. That is safe because every
-        command this client sends is idempotent: reads, a reload, a registry removal (a repeat
-        answers not_found) and saves of a whole config.
+        A socket closed while idle (a proxy's idle timeout during a long Modem Restore, say)
+        is reopened once and the command sent on the new one. Only a command that never left
+        the client is resent: one HA may have acted on raises instead, as a repeated write
+        need not succeed.
         """
         try:
             reply = await self._exchange(kind, payload)
-        except _Closed:
+        except _Unsent:
             await self._connect()
             try:
                 reply = await self._exchange(kind, payload)
-            except _Closed as error:
+            except _Unsent as error:
                 raise HaError("Home Assistant closed the connection") from error
         if not reply.get("success"):
             error = reply.get("error") or {}
