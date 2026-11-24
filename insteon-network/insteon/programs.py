@@ -13,7 +13,7 @@ The export is the input to that plan.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 from insteon.address import ButtonAddress
 from insteon.ha import Automation, HaClient, HaRegistry
@@ -66,10 +66,12 @@ class ProgramsExport:
     programs: tuple[Program, ...]
     """Every program and folder, with its body where a D2D file holds one."""
     variables: tuple[Variable, ...]
-    bodies_read: int = 0
+    bodies_read: int
     """How many D2D files the export read."""
-    references: Mapping[int, tuple[Reference, ...]] = field(default_factory=dict)
-    duplicates: Mapping[int, tuple[PossibleDuplicate, ...]] = field(default_factory=dict)
+    unlisted: tuple[int, ...]
+    """Ids of D2D files that match no program `/rest/programs` lists."""
+    references: Mapping[int, tuple[Reference, ...]]
+    duplicates: Mapping[int, tuple[PossibleDuplicate, ...]]
 
     def program(self, number: int) -> Program | None:
         return next((program for program in self.programs if program.id == number), None)
@@ -104,6 +106,7 @@ async def export(iox: IoxClient, files: IoxFiles, ha: HaClient) -> ProgramsExpor
         programs=programs,
         variables=tuple(await iox.variables()),
         bodies_read=len(bodies),
+        unlisted=tuple(sorted(set(bodies) - {program.id for program in programs})),
         references=references,
         duplicates={
             number: possible_duplicates(found, automations, registry) for number, found in references.items()
@@ -120,21 +123,19 @@ def program_references(body: Body, network: Network, registry: HaRegistry) -> tu
     named: list[Device | Scene | str] = []
     for node in body.nodes:
         button = ButtonAddress.try_parse(node)
-        scene = next((scene for scene in network.scenes if scene.address == node), None)
-        known = network.device_of(button) if button else scene
+        known = network.device_of(button) if button else network.scene(node)
         named.append(known or node)
-    found: list[Reference] = []
-    listed: set[object] = set()
+    found: dict[object, Reference] = {}
+
+    def key(target: Device | Scene | str) -> object:
+        return target if isinstance(target, str) else target.address
 
     def add(target: Device | Scene | str, via: Scene | None = None) -> None:
-        key = target if isinstance(target, str) else target.address
-        if key in listed:
-            return
-        listed.add(key)
-        entity_ids = () if isinstance(target, str) else ha_entity_ids(target, network, registry)
-        found.append(Reference(target, entity_ids, via))
+        if key(target) not in found:
+            entity_ids = () if isinstance(target, str) else ha_entity_ids(target, network, registry)
+            found[key(target)] = Reference(target, entity_ids, via)
 
-    direct = {target if isinstance(target, str) else target.address for target in named}
+    direct = {key(target) for target in named}
     for target in named:
         add(target)
         if isinstance(target, Scene):
@@ -142,13 +143,17 @@ def program_references(body: Body, network: Network, registry: HaRegistry) -> tu
                 device = network.device_of(member)
                 if device is not None and device.address not in direct:
                     add(device, via=target)
-    return tuple(found)
+    return tuple(found.values())
 
 
 def possible_duplicates(
     references: Sequence[Reference], automations: Sequence[Automation], registry: HaRegistry
 ) -> tuple[PossibleDuplicate, ...]:
-    """Automations that reference any entity of the program's Devices and Scenes."""
+    """Automations that reference any entity of the program's Devices and Scenes.
+
+    Either side may only watch a Device (in an If, or an automation's trigger),
+    so a match is a possible duplicate to check by hand, not a verdict.
+    """
     ours = {entity_id for reference in references for entity_id in reference.entity_ids}
     found = []
     for automation in automations:
@@ -170,8 +175,14 @@ def render(result: ProgramsExport) -> str:
         f"IoX programs: {len(programs)} programs in {len(folders)} folders",
         f"Bodies: {result.bodies_read} D2D files read over SSH; "
         + (f"{undecoded} statements not decoded, shown raw as [not decoded]" if undecoded else "every statement decoded"),
-        "",
     ]
+    if result.unlisted:
+        count = len(result.unlisted)
+        lines.append(
+            f"{count} D2D file{' matches' if count == 1 else 's match'} no listed program: "
+            + ", ".join(f"{number:04X}" for number in result.unlisted)
+        )
+    lines.append("")
     folder_ids = {folder.id for folder in folders}
     groups: list[tuple[str, Program | None]] = [(f"{result.path(f)}  [{f.iox_id}]", f) for f in folders]
     if any(p.parent not in folder_ids for p in programs):
@@ -220,7 +231,7 @@ def _entry(program: Program, result: ProgramsExport) -> list[str]:
     lines += ["Devices:", *_indent([_reference(r) for r in references], 2)] if references else ["Devices: none"]
     duplicates = result.duplicates.get(program.id, ())
     if duplicates:
-        lines.append("Possible duplicates in HA (same Devices):")
+        lines.append("Possible duplicates in HA (automations that reference the same Devices):")
         lines += _indent(
             [f"{d.automation.entity_id} ({d.automation.name}): {', '.join(d.shared)}" for d in duplicates], 2
         )
@@ -232,7 +243,7 @@ def _entry(program: Program, result: ProgramsExport) -> list[str]:
 def _reference(reference: Reference) -> str:
     target = reference.target
     if isinstance(target, str):
-        return f"unknown node ({target}): not on the Controller"
+        return f"unknown Device or Scene ({target}): not on the Controller"
     name = f"Scene '{target.name}' ({target.address})" if isinstance(target, Scene) else f"'{target.name}' ({target.address})"
     if reference.via is not None:
         name += f", in Scene {reference.via.address}"
@@ -289,8 +300,8 @@ def _node(node: str, result: ProgramsExport) -> str:
     if button_address is not None:
         button = result.network.button(button_address)
         return f"'{button.name}' ({button_address})" if button else f"unknown Button ({button_address})"
-    scene = next((scene for scene in result.network.scenes if scene.address == node), None)
-    return f"Scene '{scene.name}' ({node})" if scene else f"unknown node ({node})"
+    scene = result.network.scene(node)
+    return f"Scene '{scene.name}' ({node})" if scene else f"unknown Device or Scene ({node})"
 
 
 def _variable(ref: VariableRef, result: ProgramsExport) -> str:

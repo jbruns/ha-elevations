@@ -87,11 +87,11 @@ async def test_a_program_flags_automations_that_reference_the_same_devices(
     text = await exported(iox_url, ha_url, eisy_ssh)
 
     assert block(text, "Example Dimmer Level")[-2:] == [
-        "Possible duplicates in HA (same Devices):",
+        "Possible duplicates in HA (automations that reference the same Devices):",
         "automation.example_dimmer_level (Example dimmer level): light.example_dimmer",
     ]
     assert block(text, "Example Follow")[-3:] == [
-        "Possible duplicates in HA (same Devices):",
+        "Possible duplicates in HA (automations that reference the same Devices):",
         "automation.example_dimmer_level (Example dimmer level): light.example_dimmer",
         "automation.example_keypad_press (Example keypad press): event.example_keypad_a, switch.example_scene",
     ]
@@ -173,3 +173,43 @@ async def test_a_program_outside_any_folder_is_still_listed(
 
     assert "(no folder)" in text.splitlines()
     assert block(text, "Example Unknown")[0].startswith("Example Unknown  [000A]")
+
+
+async def test_devices_named_in_statements_not_decoded_still_count(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_ssh: FakeEisySsh
+) -> None:
+    fake_ssh.files["D2D/000A.PGM"] = (
+        b'<d2d><trigger><id>10</id><name>Example Unknown</name><parent>1</parent><if><and />'
+        b'<status id="ST" node="AA BB CC 1" op="IS"><val uom="51">100</val></status></if>'
+        b"<then></then><else></else><comment></comment></trigger></d2d>"
+    )
+
+    text = await exported(iox_url, ha_url, eisy_ssh)
+
+    entry = block(text, "Example Unknown")
+    assert "'Example Dimmer' (AA.BB.CC): light.example_dimmer, number.example_dimmer_on_level" in entry
+    assert "automation.example_dimmer_level (Example dimmer level): light.example_dimmer" in entry
+
+
+async def test_an_unreadable_d2d_file_is_shown_raw_and_the_export_goes_on(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_ssh: FakeEisySsh
+) -> None:
+    fake_ssh.files["D2D/0003.PGM"] = b"<d2d><trigger>broken"
+
+    text = await exported(iox_url, ha_url, eisy_ssh)
+
+    assert "[not decoded] <d2d><trigger>broken" in block(text, "Example Dimmer Level")
+    assert "Example Follow  [0004]" in text
+
+
+async def test_d2d_files_with_no_listed_program_are_reported(
+    iox_url: str, ha_url: str, eisy_ssh: SshEndpoint, fake_ssh: FakeEisySsh
+) -> None:
+    fake_ssh.files["D2D/0099.PGM"] = (
+        b"<d2d><trigger><id>153</id><name>Example Orphan</name><parent>1</parent>"
+        b"<if></if><then></then><else></else><comment></comment></trigger></d2d>"
+    )
+
+    text = await exported(iox_url, ha_url, eisy_ssh)
+
+    assert "1 D2D file matches no listed program: 0099" in text

@@ -57,7 +57,7 @@ This command is read-only. It exports every IoX program and variable as text, th
 - its folder, id, enabled and run-at-startup state, whether its If was last true, and when it last ran;
 - its If, Then and Else, with Devices, Scenes and variables by name;
 - the Devices and Scenes it names, with their Home Assistant entity IDs. A Scene brings its members' Devices with it;
-- the Home Assistant automations that reference any of the same entities, as possible duplicates: the same Devices controlled from both sides.
+- the Home Assistant automations that reference any of the same entities, as possible duplicates. Either side may only watch a Device (in an If, or a trigger), so check each match by hand.
 
 Each variable shows its type, id, name, value, init, and the programs that use it.
 

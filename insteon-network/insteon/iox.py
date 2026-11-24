@@ -366,12 +366,22 @@ class IoxFiles:
         self._timeout = timeout
 
     async def program_bodies(self) -> dict[int, Body]:
-        """Every program's If, Then and Else from `CONF/D2D/*.PGM`, by program id."""
+        """Every program's If, Then and Else from `CONF/D2D/*.PGM`, by program id.
+
+        A file the tool cannot read keeps its whole text as one Undecoded
+        statement, under the id its name gives, so one bad file loses nothing else.
+        """
         bodies = {}
         for name, data in (await self._read_folder("D2D")).items():
-            if name.upper().endswith(".PGM"):
-                number, body = parse_program_body(data.decode(), name)
-                bodies[number] = body
+            stem, _, extension = name.rpartition("/")[2].partition(".")
+            if extension.upper() != "PGM":
+                continue
+            text = data.decode(errors="replace")
+            try:
+                number, body = parse_program_body(text, name)
+            except IoxError:
+                number, body = int(stem, 16), Body((Undecoded(text.strip()),), (), (), "")
+            bodies[number] = body
         return bodies
 
     async def _read_folder(self, folder: str) -> dict[str, bytes]:
@@ -505,12 +515,13 @@ def _variable(element: ET.Element, *, allow_children: bool = False) -> VariableR
 
 
 def _undecoded(elements: Iterable[ET.Element]) -> Undecoded:
-    raw = []
+    raw, nodes = [], []
     for element in elements:
         bare = copy.copy(element)
         bare.tail = None
         raw.append(ET.tostring(bare, encoding="unicode"))
-    return Undecoded("".join(raw))
+        nodes += [node for child in element.iter() if (node := child.get("node"))]
+    return Undecoded("".join(raw), tuple(dict.fromkeys(nodes)))
 
 
 def parse_programs(text: str) -> list[Program]:

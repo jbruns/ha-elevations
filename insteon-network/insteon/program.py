@@ -70,6 +70,8 @@ class Undecoded:
     """A statement in a shape the tool does not decode, kept as its raw XML."""
 
     xml: str
+    nodes: tuple[str, ...] = ()
+    """The nodes its XML names, so its Devices still count."""
 
 
 Statement = Condition | SetVariable | Wait | Command | Undecoded
@@ -98,6 +100,8 @@ class Body:
                     found[node] = None
                 case Command(node=node):
                     found[node] = None
+                case Undecoded(nodes=nodes):
+                    found.update(dict.fromkeys(nodes))
         return tuple(found)
 
     @property
