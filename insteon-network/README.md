@@ -88,6 +88,7 @@ A program is retired once its Home Assistant replacement is live (ADR 0012), in 
 `--disable` and `--enable` use `/rest/programs/<id>/disable|enable`, on the rails: a dry run until `--apply`, then the lock and the IoX backup first. A program already in the asked state is listed and left alone; if every program is, nothing is backed up. After applying, the tool reads `/rest/programs` again and lists any program whose state did not change, and exits with an error. Running the same command again retries only those.
 
 Deleting is a one-off done in eisy-ui, not a tool option. IoX's schema has no call that deletes a program or a variable ([research/iox-api.md](./research/iox-api.md) §3), so the tool would have to edit IoX's files, which isn't safe while IoX runs.
+
 ### `audit`
 
 The Link Audit. It is read-only, but it holds the lock throughout, since every Link-table read is a Modem operation. For each Device, it compares the Links the Device holds (`G_DEV_ALL`) with those the Controller expects (`G_ISY_ALL`). The Controller keeps no expected table for the Modem, so the Modem's expected Links are mirrored from the Devices' tables: a Device's Link with the Modem implies one in the Modem with the same group and the opposite role. It reports:
