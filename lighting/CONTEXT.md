@@ -19,3 +19,7 @@ _Avoid_: Porch lights, outdoor lights, security lights
 **Night Timeout**:
 A light left on too long during night hours is turned off.
 _Avoid_: Auto-off, sleep timer
+
+**Keypad Sync**:
+Keeping a light's keypad buttons lit to match the light when it changes from somewhere other than the wall, by switching a Scene that holds only those buttons.
+_Avoid_: LED sync, slave sync, keypad follow
