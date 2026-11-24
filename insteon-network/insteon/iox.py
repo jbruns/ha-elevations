@@ -2,8 +2,8 @@
 
 REST reads (`/rest/...`), SOAP calls (`POST /services`), and the event stream
 (`/rest/subscribe`) all go through `IoxClient`, over HTTPS on port 8443 with a
-local IoX user. The wire facts it relies on are in
-`insteon-network/research/iox-api.md`.
+local IoX user. `IoxFiles` reads IoX's config files over SSH, read-only. The
+wire facts it relies on are in `insteon-network/research/iox-api.md`.
 
 IoX's XML comes from the Administrator's own Controller on the local network,
 so it is parsed with the standard library.
@@ -14,17 +14,36 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import copy
+import io
 import sys
+import tarfile
 import xml.etree.ElementTree as ET
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from types import TracebackType
 from xml.sax.saxutils import escape
 
 import aiohttp
+import asyncssh
 
 from insteon.address import InsteonAddress, ButtonAddress
 from insteon.network import Button, Device, ForeignNode, Link, Modem, Network, Scene
+from insteon.program import (
+    Body,
+    Command,
+    Condition,
+    NodeStatus,
+    Program,
+    SetVariable,
+    Statement,
+    Undecoded,
+    Variable,
+    VariableKind,
+    VariableRef,
+    Wait,
+)
 
 SERVICE = "urn:udi-com:service:X_Insteon_Lighting_Service:1"
 SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
@@ -38,6 +57,8 @@ _FLAG_IN_ERROR = 0x10
 _CONTROLLER = "16"
 # Seconds to wait for events still in flight after a streaming call returns.
 _STREAM_GRACE = 5.0
+# IoX's config files, which only root may read (iox-api.md §5).
+CONF = "/var/isy/FILES/CONF"
 # IoX families. A node with no family, or family 1, is Insteon.
 _INSTEON_FAMILIES = {None, "0", "1"}
 _FAMILY_NAMES = {
@@ -284,6 +305,242 @@ class IoxClient:
                     with contextlib.suppress(asyncio.CancelledError):
                         await call
         return records
+
+    async def programs(self) -> list[Program]:
+        """Every program and program folder, without bodies (`/rest/programs`)."""
+        return parse_programs(await self.get("programs?subfolders=true"))
+
+    async def variables(self) -> list[Variable]:
+        """Every integer and state variable, with its value and init."""
+        variables = []
+        for kind in VariableKind:
+            definitions = await self.get(f"vars/definitions/{kind.value}")
+            values = await self.get(f"vars/get/{kind.value}")
+            variables.extend(parse_variables(kind, definitions, values))
+        return variables
+
+
+def parse_variables(kind: VariableKind, definitions: str, values: str) -> list[Variable]:
+    """Join `/rest/vars/definitions/<kind>` (names) to `/rest/vars/get/<kind>` (values) by id."""
+    names = {
+        int(entry.get("id", "")): entry.get("name", "")
+        for entry in _xml(definitions, f"/rest/vars/definitions/{kind.value}").iter("e")
+    }
+    variables = []
+    for var in _xml(values, f"/rest/vars/get/{kind.value}").iter("var"):
+        number = int(var.get("id", ""))
+        variables.append(
+            Variable(
+                kind=kind,
+                id=number,
+                name=names.get(number, ""),
+                value=int(var.findtext("val", "0")),
+                init=int(var.findtext("init", "0")),
+                precision=int(var.findtext("prec", "0")),
+                changed=(var.findtext("ts") or "").strip() or None,
+            )
+        )
+    return sorted(variables, key=lambda variable: variable.id)
+
+
+class IoxFiles:
+    """IoX's config files under `/var/isy/FILES/CONF`, read over SSH. Read-only.
+
+    The files are root's, so the read runs under `sudo`, which takes the SSH
+    user's password on stdin (`-S`). The password never goes on a command line.
+    The host key is checked against `known_hosts`, by default the user's own.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        user: str,
+        password: str,  # gitleaks:allow (an annotation, not a value)
+        *,
+        port: int = 22,
+        known_hosts: Path | None = None,
+        timeout: float = 60,
+    ) -> None:
+        self._host, self._port, self._user, self._password = host, port, user, password
+        self._known_hosts = known_hosts
+        self._timeout = timeout
+
+    async def program_bodies(self) -> dict[int, Body]:
+        """Every program's If, Then and Else from `CONF/D2D/*.PGM`, by program id."""
+        bodies = {}
+        for name, data in (await self._read_folder("D2D")).items():
+            if name.upper().endswith(".PGM"):
+                number, body = parse_program_body(data.decode(), name)
+                bodies[number] = body
+        return bodies
+
+    async def _read_folder(self, folder: str) -> dict[str, bytes]:
+        """The files in one folder under CONF, by path relative to CONF."""
+        command = f"sudo -S -p '' tar -cf - -C {CONF} {folder}"
+        where = f"SSH to {self._user}@{self._host}"
+        try:
+            async with asyncio.timeout(self._timeout):
+                async with asyncssh.connect(
+                    self._host,
+                    port=self._port,
+                    username=self._user,
+                    password=self._password,
+                    known_hosts=str(self._known_hosts) if self._known_hosts else (),
+                    client_keys=None,
+                    agent_path=None,
+                ) as connection:
+                    result = await connection.run(
+                        command, input=f"{self._password}\n".encode(), encoding=None, check=False
+                    )
+        except asyncssh.HostKeyNotVerifiable as error:
+            trusted = self._known_hosts or "~/.ssh/known_hosts"
+            raise IoxError(f"{where}: its host key is not in {trusted}; connect once with ssh to trust it") from error
+        except asyncssh.PermissionDenied as error:
+            raise IoxError(f"{where}: the Controller refused the SSH password") from error
+        except TimeoutError as error:
+            raise IoxError(f"{where}: no answer in {self._timeout:.0f} s") from error
+        except (asyncssh.Error, OSError) as error:
+            raise IoxError(f"{where}: {error}") from error
+        if result.exit_status != 0:
+            stderr = _bytes(result.stderr).decode(errors="replace").strip().splitlines()
+            reason = stderr[-1] if stderr else "no message"
+            raise IoxError(f"{where}: reading {CONF}/{folder} exited {result.exit_status}: {reason}")
+        try:
+            with tarfile.open(fileobj=io.BytesIO(_bytes(result.stdout))) as archive:
+                return {
+                    member.name: extracted.read()
+                    for member in archive.getmembers()
+                    if member.isfile() and (extracted := archive.extractfile(member)) is not None
+                }
+        except tarfile.TarError as error:
+            raise IoxError(f"{where}: reading {CONF}/{folder} returned no tar archive ({error})") from error
+
+
+def _bytes(output: bytes | str | None) -> bytes:
+    """A process's output, which asyncssh types as text or bytes; with `encoding=None` it is bytes."""
+    return output.encode() if isinstance(output, str) else output or b""
+
+
+def parse_program_body(text: str, source: str = "D2D file") -> tuple[int, Body]:
+    """A program's id and body from its D2D file (`CONF/D2D/<id>.PGM`).
+
+    The file is `<d2d><trigger>` XML with the id in decimal. Statements are
+    decoded in the shapes seen on IoX 6.0.5; any other shape is kept raw.
+    """
+    trigger = _xml(text, source).find("trigger")
+    if trigger is None or not (trigger.findtext("id") or "").strip().isdigit():
+        raise IoxError(f"{source}: no <trigger> with an <id>")
+    return int(trigger.findtext("id", "")), Body(
+        conditions=_conditions(trigger.find("if")),
+        then=_actions(trigger.find("then")),
+        otherwise=_actions(trigger.find("else")),
+        comment=(trigger.findtext("comment") or "").strip(),
+    )
+
+
+def _conditions(block: ET.Element | None) -> tuple[Statement, ...]:
+    """An If block. `<and />` or `<or />` comes before the condition it joins."""
+    statements: list[Statement] = []
+    joiner: ET.Element | None = None
+    for child in block if block is not None else ():
+        if child.tag in ("and", "or") and joiner is None:
+            joiner = child
+            continue
+        condition = _condition(child, joiner.tag if joiner is not None else "and")
+        statements.append(condition or _undecoded([joiner, child] if joiner is not None else [child]))
+        joiner = None
+    if joiner is not None:
+        statements.append(_undecoded([joiner]))
+    return tuple(statements)
+
+
+def _condition(element: ET.Element, joiner: str) -> Condition | None:
+    """`<status id="ST" node="…" op="ISNOT"><var type="2" id="1" /></status>`."""
+    if element.tag != "status" or len(element) != 1:
+        return None
+    left = _node_status(element)
+    right = _variable(element[0])
+    if left is None or right is None or not element.get("op"):
+        return None
+    return Condition(joiner, left, element.get("op", ""), right)
+
+
+def _actions(block: ET.Element | None) -> tuple[Statement, ...]:
+    return tuple(_action(child) or _undecoded([child]) for child in (block if block is not None else ()))
+
+
+def _action(element: ET.Element) -> Statement | None:
+    match element.tag, [child.tag for child in element]:
+        case "var", ["op", "status"]:
+            # `<var id="1" type="2"><op>EQ</op><status id="ST" node="…"/></var>`
+            variable, value = _variable(element, allow_children=True), _node_status(element[1])
+            op = (element.findtext("op") or "").strip()
+            return SetVariable(variable, op, value) if variable and value and op else None
+        case "wait", ["seconds"]:
+            seconds = (element.findtext("seconds") or "").strip()
+            return Wait(int(seconds)) if seconds.isdigit() else None
+        case "cmd", tags if all(tag == "p" for tag in tags):
+            # `<cmd id="DON" node="…"><p id=""><var type="2" id="1" /></p></cmd>`
+            parameters = [_variable(p[0]) if len(p) == 1 else None for p in element]
+            if not element.get("id") or not element.get("node") or None in parameters:
+                return None
+            return Command(element.get("id", ""), element.get("node", ""), tuple(p for p in parameters if p))
+    return None
+
+
+def _node_status(element: ET.Element) -> NodeStatus | None:
+    if element.tag != "status" or not element.get("node") or not element.get("id"):
+        return None
+    return NodeStatus(element.get("node", ""), element.get("id", ""))
+
+
+def _variable(element: ET.Element, *, allow_children: bool = False) -> VariableRef | None:
+    """`<var type="2" id="1" />`: type 1 integer, 2 state."""
+    kind, number = element.get("type", ""), element.get("id", "")
+    if element.tag != "var" or (len(element) and not allow_children):
+        return None
+    if not (kind.isdigit() and number.isdigit()) or int(kind) not in VariableKind:
+        return None
+    return VariableRef(VariableKind(int(kind)), int(number))
+
+
+def _undecoded(elements: Iterable[ET.Element]) -> Undecoded:
+    raw = []
+    for element in elements:
+        bare = copy.copy(element)
+        bare.tail = None
+        raw.append(ET.tostring(bare, encoding="unicode"))
+    return Undecoded("".join(raw))
+
+
+def parse_programs(text: str) -> list[Program]:
+    """Programs from a `/rest/programs?subfolders=true` response. Ids are hex."""
+
+    def flag(element: ET.Element, name: str) -> bool | None:
+        value = element.get(name)
+        return None if value is None else value == "true"
+
+    def text_of(element: ET.Element, tag: str) -> str | None:
+        return (element.findtext(tag) or "").strip() or None
+
+    programs = []
+    for element in _xml(text, "/rest/programs").iter("program"):
+        is_folder = element.get("folder") == "true"
+        parent = element.get("parentId")
+        programs.append(
+            Program(
+                id=int(element.get("id", ""), 16),
+                name=element.findtext("name", ""),
+                parent=int(parent, 16) if parent else None,
+                is_folder=is_folder,
+                enabled=None if is_folder else flag(element, "enabled"),
+                run_at_startup=None if is_folder else flag(element, "runAtStartup"),
+                status=flag(element, "status"),
+                last_run=text_of(element, "lastRunTime"),
+                last_finish=text_of(element, "lastFinishTime"),
+            )
+        )
+    return programs
 
 
 def parse_nodes(text: str, uuid: str) -> Network:

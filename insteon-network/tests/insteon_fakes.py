@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
+import tarfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import asyncssh
 import pytest
 from aiohttp import WSMsgType, web
 
@@ -20,6 +23,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 UUID = "00:00:00:00:00:00"
 MODEM = "2A.2B.2C"
 USER, PASSWORD = "tool", "example-password"
+SSH_USER, SSH_PASSWORD = "example-admin", "example-ssh-password"
+# The one command the tool may run on the Controller: a read of the D2D folder.
+D2D_TAR = "sudo -S -p '' tar -cf - -C /var/isy/FILES/CONF D2D"
 TOKEN = "example-token"
 
 
@@ -44,6 +50,7 @@ def plm_record(ix: int, flags: int, group: int, address: int, data: int = 0) -> 
 class FakeIox:
     nodes_xml: str = field(default_factory=lambda: (FIXTURES / "nodes.xml").read_text())
     config_xml: str = field(default_factory=lambda: (FIXTURES / "config.xml").read_text())
+    programs_xml: str = field(default_factory=lambda: (FIXTURES / "programs.xml").read_text())
     plm_info: str = f"{MODEM} v9B / Connected"
     plm_records: list[str] = field(default_factory=list)
     soap_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -59,7 +66,12 @@ class FakeIox:
             return web.Response(status=401)
         path = request.match_info["path"]
         self.gets.append(path)
-        body = {"nodes": self.nodes_xml, "config": self.config_xml}.get(path)
+        body = {
+            "nodes": self.nodes_xml,
+            "config": self.config_xml,
+            "programs": self.programs_xml,
+            **{f"vars/{kind}/{n}": (FIXTURES / f"vars-{kind}-{n}.xml").read_text() for kind in ("definitions", "get") for n in (1, 2)},
+        }.get(path)
         if body is None:
             return web.Response(status=404)
         return web.Response(text=body, content_type="text/xml")
@@ -119,6 +131,60 @@ class FakeIox:
         return app
 
 
+def _tar(files: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        for name, data in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+@dataclass
+class FakeEisySsh:
+    """The Controller's SSH login. It answers only the D2D read, and only when
+    sudo's password arrives on stdin."""
+
+    files: dict[str, bytes] = field(
+        default_factory=lambda: {f"D2D/{path.name}": path.read_bytes() for path in sorted((FIXTURES / "programs").iterdir())}
+    )
+    commands: list[str] = field(default_factory=list)
+    sudo_passwords: list[str] = field(default_factory=list)
+
+    def server(self) -> asyncssh.SSHServer:
+        class Server(asyncssh.SSHServer):
+            def password_auth_supported(self) -> bool:
+                return True
+
+            def validate_password(self, username: str, password: str) -> bool:  # gitleaks:allow
+                return (username, password) == (SSH_USER, SSH_PASSWORD)
+
+        return Server()
+
+    async def process(self, process: asyncssh.SSHServerProcess[bytes]) -> None:
+        command = process.command or ""
+        self.commands.append(command)
+        if command != D2D_TAR:
+            process.stderr.write(b"sh: not allowed in the fake\n")
+            process.exit(127)
+            return
+        line = (await process.stdin.readline()).decode().rstrip("\n")
+        self.sudo_passwords.append(line)
+        if line != SSH_PASSWORD:
+            process.stderr.write(b"Sorry, try again.\nsudo: 1 incorrect password attempt\n")
+            process.exit(1)
+            return
+        process.stdout.write(_tar(self.files))
+        process.exit(0)
+
+
+@dataclass(frozen=True)
+class SshEndpoint:
+    port: int
+    known_hosts: Path
+
+
 OLD_UUID = "11:11:11:11:11:11"
 
 
@@ -166,10 +232,23 @@ def ha_entities() -> list[dict[str, Any]]:
     ]
 
 
+def ha_automations() -> dict[str, dict[str, Any]]:
+    """Made-up automations: their friendly names and what `search/related` finds in them."""
+    return {
+        "automation.example_dimmer_level": {
+            "name": "Example dimmer level",
+            "related": {"entity": ["light.example_dimmer", "input_number.example_level"], "area": ["example"]},
+        },
+        "automation.example_keypad_press": {"name": "Example keypad press", "related": {"device": ["keypad"]}},
+        "automation.example_bulb": {"name": "Example bulb", "related": {"entity": ["light.example_bulb"]}},
+    }
+
+
 @dataclass
 class FakeHa:
     devices: list[dict[str, Any]] = field(default_factory=ha_devices)
     entities: list[dict[str, Any]] = field(default_factory=ha_entities)
+    automations: dict[str, dict[str, Any]] = field(default_factory=ha_automations)
     entries: list[dict[str, Any]] = field(
         default_factory=lambda: [
             {"entry_id": "isy-entry", "domain": "isy994", "title": "Example IoX"},
@@ -184,6 +263,16 @@ class FakeHa:
             return {"success": True, "result": self.devices}
         if kind == "config/entity_registry/list":
             return {"success": True, "result": self.entities}
+        if kind == "get_states":
+            states = [{"entity_id": "light.example_dimmer", "state": "on", "attributes": {}}]
+            states += [
+                {"entity_id": entity_id, "state": "on", "attributes": {"friendly_name": automation["name"]}}
+                for entity_id, automation in self.automations.items()
+            ]
+            return {"success": True, "result": states}
+        if kind == "search/related":
+            automation = self.automations.get(message.get("item_id", "")) if message.get("item_type") == "automation" else None
+            return {"success": True, "result": automation["related"] if automation else {}}
         if kind == "config_entries/get":
             domain = message.get("domain")
             return {"success": True, "result": [e for e in self.entries if domain in (None, e["domain"])]}
@@ -239,6 +328,26 @@ async def iox_url(socket_enabled: None, aiohttp_server: Any, fake_iox: FakeIox) 
     # phcc blocks sockets; the fakes listen on localhost only.
     server = await aiohttp_server(fake_iox.app())
     return str(server.make_url("")).rstrip("/")
+
+
+@pytest.fixture
+def fake_ssh() -> FakeEisySsh:
+    return FakeEisySsh()
+
+
+@pytest.fixture
+async def eisy_ssh(socket_enabled: None, fake_ssh: FakeEisySsh, tmp_path: Path) -> Any:
+    """The fake SSH login on localhost, and a known_hosts file that trusts its host key."""
+    key = asyncssh.generate_private_key("ssh-ed25519")
+    server = await asyncssh.create_server(
+        fake_ssh.server, "127.0.0.1", 0, server_host_keys=[key], process_factory=fake_ssh.process, encoding=None
+    )
+    port = server.sockets[0].getsockname()[1]
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text(f"[127.0.0.1]:{port} {key.export_public_key().decode()}")
+    yield SshEndpoint(port, known_hosts)
+    server.close()
+    await server.wait_closed()
 
 
 @pytest.fixture

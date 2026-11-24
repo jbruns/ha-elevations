@@ -1,0 +1,1 @@
+<d2d><trigger><id>3</id><name>Example Dimmer Level</name><parent>2</parent><if><and /><status id="ST" node="AA BB CC 1" op="ISNOT"><var uom="51" type="2" id="1" /></status></if><then><var id="1" type="2"><op>EQ</op><status id="ST" node="AA BB CC 1" uom="51"/></var></then><else></else><comment>Remembers the dimmer level</comment></trigger></d2d>

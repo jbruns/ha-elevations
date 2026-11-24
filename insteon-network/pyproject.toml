@@ -7,6 +7,7 @@ dependencies = [
   # Already in the dev environment through Home Assistant; left unpinned so the
   # HA test pin decides the version (ADR 0008).
   "aiohttp>=3.9",
+  "asyncssh>=2.14",
 ]
 
 [project.scripts]

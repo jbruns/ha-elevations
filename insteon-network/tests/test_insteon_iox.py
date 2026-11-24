@@ -1,9 +1,12 @@
+from pathlib import Path
+
 import pytest
-from insteon_fakes import FakeIox, MODEM, PASSWORD, USER, UUID, plm_record
-from insteon_fakes import fake_iox, iox_url  # noqa: F401 (fixtures)
+from insteon_fakes import D2D_TAR, FakeEisySsh, FakeIox, MODEM, PASSWORD, SSH_PASSWORD, SSH_USER, SshEndpoint, USER, UUID, plm_record
+from insteon_fakes import eisy_ssh, fake_iox, fake_ssh, iox_url  # noqa: F401 (fixtures)
 
 from insteon.address import InsteonAddress, ButtonAddress
-from insteon.iox import IoxClient, IoxError, soap_envelope
+from insteon.iox import IoxClient, IoxError, IoxFiles, soap_envelope
+from insteon.program import Command, Condition, NodeStatus, SetVariable, Undecoded, VariableKind, VariableRef, Wait
 
 
 def client(url: str, secret: str = PASSWORD) -> IoxClient:
@@ -122,3 +125,78 @@ async def test_a_wrong_password_is_reported_plainly(iox_url: str) -> None:
     async with client(iox_url, secret="wrong") as iox:
         with pytest.raises(IoxError, match="401"):
             await iox.network()
+
+
+async def test_programs_list_each_program_and_folder_with_its_state(iox_url: str) -> None:
+    async with client(iox_url) as iox:
+        programs = {program.id: program for program in await iox.programs()}
+
+    assert sorted(programs) == [0x01, 0x02, 0x03, 0x04, 0x0A]
+    folder = programs[0x02]
+    assert (folder.name, folder.parent, folder.is_folder) == ("Example Folder", 0x01, True)
+    follow = programs[0x04]
+    assert (follow.name, follow.parent, follow.is_folder) == ("Example Follow", 0x02, False)
+    assert (follow.enabled, follow.run_at_startup, follow.status) == (False, True, True)
+    assert (follow.last_run, follow.last_finish) == ("2026/01/02 03:04:05 AM", "2026/01/02 03:04:07 AM")
+    assert programs[0x01].parent is None
+    assert programs[0x0A].last_run is None
+
+
+async def test_variables_join_each_name_to_its_value_and_init(iox_url: str) -> None:
+    async with client(iox_url) as iox:
+        variables = await iox.variables()
+
+    assert [(v.kind, v.id, v.name, v.value, v.init, v.precision, v.changed) for v in variables] == [
+        (VariableKind.INTEGER, 1, "i.Example_Counter", 3, 1, 0, "20260102 03:04:05"),
+        (VariableKind.STATE, 1, "s.Example_Level", 42, 0, 0, "20260102 03:04:04"),
+        (VariableKind.STATE, 2, "s.Example_Unused", 0, 5, 0, "20260101 00:00:00"),
+    ]
+
+
+def files(endpoint: SshEndpoint, secret: str = SSH_PASSWORD) -> IoxFiles:
+    return IoxFiles("127.0.0.1", SSH_USER, secret, port=endpoint.port, known_hosts=endpoint.known_hosts)
+
+
+async def test_program_bodies_decode_if_then_else_from_the_d2d_files(eisy_ssh: SshEndpoint) -> None:
+    bodies = await files(eisy_ssh).program_bodies()
+
+    level = VariableRef(VariableKind.STATE, 1)
+    assert sorted(bodies) == [0x01, 0x02, 0x03, 0x04, 0x0A]
+    remember = bodies[0x03]
+    assert remember.conditions == (Condition("and", NodeStatus("AA BB CC 1", "ST"), "ISNOT", level),)
+    assert remember.then == (SetVariable(level, "EQ", NodeStatus("AA BB CC 1", "ST")),)
+    assert (remember.otherwise, remember.comment) == ((), "Remembers the dimmer level")
+    follow = bodies[0x04]
+    assert [condition.joiner for condition in follow.conditions] == ["and", "or"]
+    assert follow.then == (Wait(2), Command("DON", "12345", (level,)), Command("DON", "A B C 1", (level,)))
+
+
+async def test_statements_in_unknown_shapes_are_kept_as_raw_xml(eisy_ssh: SshEndpoint) -> None:
+    bodies = await files(eisy_ssh).program_bodies()
+
+    unknown = bodies[0x0A]
+    assert unknown.conditions == (Undecoded("<and /><schedule><daily /></schedule>"),)
+    assert unknown.then == (Undecoded('<notify content="1">2</notify>'),)
+
+
+async def test_the_ssh_password_goes_only_to_sudo_on_stdin(eisy_ssh: SshEndpoint, fake_ssh: FakeEisySsh) -> None:
+    await files(eisy_ssh).program_bodies()
+
+    assert fake_ssh.commands == [D2D_TAR]
+    assert fake_ssh.sudo_passwords == [SSH_PASSWORD]
+
+
+async def test_a_refused_ssh_login_fails_without_the_password(eisy_ssh: SshEndpoint) -> None:
+    with pytest.raises(IoxError, match="SSH") as raised:
+        await files(eisy_ssh, "wrong-password").program_bodies()
+
+    assert "wrong-password" not in str(raised.value)
+
+
+async def test_an_unknown_host_key_fails_and_says_how_to_trust_it(eisy_ssh: SshEndpoint, tmp_path: Path) -> None:
+    empty = tmp_path / "empty_known_hosts"
+    empty.write_text("")
+    endpoint = SshEndpoint(eisy_ssh.port, empty)
+
+    with pytest.raises(IoxError, match="known_hosts"):
+        await files(endpoint).program_bodies()

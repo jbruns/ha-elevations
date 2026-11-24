@@ -2,7 +2,8 @@
 
 It may be an Insteon Address in any format (`1A.2B.3C`, `AA B C 1`), the IoX
 name of the Device or of one of its Buttons, or the ID of a Home Assistant
-entity from the Controller integration.
+entity from the Controller integration. The way back, from a Device or Scene to
+its Home Assistant entities, is `ha_entity_ids`.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import re
 
 from insteon.address import ButtonAddress, InsteonAddress
 from insteon.ha import DOMAIN, HaRegistry, controller_suffix
-from insteon.network import Device, Network
+from insteon.network import Device, Network, Scene
 
 _ENTITY_ID = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
 
@@ -38,6 +39,26 @@ def resolve_device(text: str, network: Network, registry: HaRegistry | None) -> 
     if _ENTITY_ID.fullmatch(query):
         return _from_entity(query, network, registry)
     return _from_name(query, network)
+
+
+def ha_entity_ids(target: Device | Scene, network: Network, registry: HaRegistry) -> tuple[str, ...]:
+    """The Controller integration's entities for a Device (any of its Buttons) or a Scene."""
+    found = []
+    for entity in registry.entities:
+        if entity.get("platform") != DOMAIN:
+            continue
+        suffix = controller_suffix(str(entity.get("unique_id", "")), network.uuid)
+        if suffix is None:
+            continue
+        address = suffix.split("_", 1)[0]
+        if isinstance(target, Scene):
+            matches = address == target.address
+        else:
+            button = ButtonAddress.try_parse(address)
+            matches = button is not None and button.device == target.address
+        if matches:
+            found.append(str(entity["entity_id"]))
+    return tuple(sorted(found))
 
 
 def _address(text: str) -> InsteonAddress | None:
